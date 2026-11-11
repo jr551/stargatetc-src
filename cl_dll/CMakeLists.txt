@@ -1,0 +1,234 @@
+#
+# Copyright (c) 2016 Alibek Omarov
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+#
+
+cmake_minimum_required(VERSION 3.9)
+project (CLDLL)
+
+set (CLDLL_LIBRARY client)
+
+add_definitions(-DCLIENT_DLL)
+# This target always links the real VGUI widget stack (vgui_*.cpp below); say so
+# instead of relying on __has_include in sgtc_vgui.h, which MSVC 2015 lacks.
+add_definitions(-DSGTC_REAL_VGUI=1)
+
+if(NOT MSVC)
+	if(NOT WIN32)
+		add_compile_options(-fno-exceptions) # GCC/Clang flag; Windows code uses try/catch
+	endif()
+	add_compile_options(-fno-rtti) # GCC/Clang flag
+	add_compile_options(-fvisibility=hidden) # GCC/Clang flag
+	add_definitions(-D_LINUX -DLINUX) # It seems enough for all non-Win32 systems
+	add_definitions(-Dstricmp=strcasecmp -Dstrnicmp=strncasecmp)
+	if(NOT MINGW)
+		add_definitions(-D_snprintf=snprintf -D_vsnprintf=vsnprintf)
+	endif()
+	if(CMAKE_BUILD_TYPE MATCHES "Release"
+		OR (CMAKE_BUILD_TYPE MATCHES "RelWithDebInfo"
+		AND CMAKE_SYSTEM_NAME STREQUAL "Android"))
+		add_compile_options(-fno-unwind-tables -fno-asynchronous-unwind-tables) # GCC/Clang flag
+		add_compile_options(-fomit-frame-pointer) # GCC/Clang flag
+		add_compile_options(-ftree-vectorize) # GCC/Clang flag
+		add_compile_options(-funsafe-math-optimizations) # GCC/Clang flag
+		# pm_shared is compiled into both the client and the server, and the client predicts
+		# movement with it, so both must give the same results. Keep it out of the
+		# reassociating -funsafe-math-optimizations (the flag comes last on the command line).
+		set_source_files_properties(
+			../pm_shared/pm_debug.c
+			../pm_shared/pm_math.c
+			../pm_shared/pm_shared.c
+			PROPERTIES COMPILE_FLAGS -fno-unsafe-math-optimizations)
+	endif()
+else()
+	add_definitions(-D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_DEPRECATE)
+endif()
+
+if (GOLDSOURCE_SUPPORT)
+	add_definitions(-DGOLDSOURCE_SUPPORT)
+endif()
+
+if (USE_STATIC_FREEVGUI)
+	add_definitions(-DINTERNAL_VGUI_SUPPORT)
+endif()
+
+set (CLDLL_SOURCES
+	../dlls/handgrenade.cpp
+	../dlls/mp5.cpp
+	../dlls/satchel.cpp
+	../dlls/shotgun.cpp
+	../dlls/tripmine.cpp
+	../dlls/glock.cpp
+	ev_hldm.cpp
+	hl/hl_baseentity.cpp
+	hl/hl_events.cpp
+	hl/hl_objects.cpp
+	hl/hl_weapons.cpp
+	ammo.cpp
+	ammo_secondary.cpp
+	ammohistory.cpp
+	battery.cpp
+	cdll_int.cpp
+	com_weapons.cpp
+	death.cpp
+	demo.cpp
+	entity.cpp
+	ev_common.cpp
+	events.cpp
+	flashlight.cpp
+	GameStudioModelRenderer.cpp
+	geiger.cpp
+	health.cpp
+	hud.cpp
+	hud_msg.cpp
+	hud_redraw.cpp
+	hud_spectator.cpp
+	hud_update.cpp
+	in_camera.cpp
+	input.cpp
+	input_goldsource.cpp
+	input_mouse.cpp
+	input_xash3d.cpp
+	interpolation.cpp
+	l10n.cpp
+	menu.cpp
+	message.cpp
+	MOTD.cpp
+	parsemsg.cpp
+	../pm_shared/pm_debug.c
+	../pm_shared/pm_math.c
+	../pm_shared/pm_shared.c
+	saytext.cpp
+	scoreboard.cpp
+	status_icons.cpp
+	statusbar.cpp
+	studio_util.cpp
+	StudioModelRenderer.cpp
+	text_message.cpp
+	train.cpp
+	tri.cpp
+	util.cpp
+	view.cpp
+	../public/safe_snprintf.c
+	sgtc_protocol.cpp
+	sgtc_hud.cpp
+	sgtc_teamcmds.cpp
+	sgtc_vgui.cpp
+	sgtc_vgui_panels.cpp
+	sgtc_env.cpp
+	sgtc_music.cpp
+	sgtc_options.cpp
+	sgtc_weapons_client.cpp
+	sgtc_sniper_fx.cpp
+	sgtc_aim.cpp
+)
+
+list(APPEND CLDLL_SOURCES
+	vgui_int.cpp
+	vgui_cursor.cpp
+	vgui_ClassMenu.cpp
+	vgui_ConsolePanel.cpp
+	vgui_ControlConfigPanel.cpp
+	vgui_CustomObjects.cpp
+	vgui_MOTDWindow.cpp
+	vgui_SchemeManager.cpp
+	vgui_ScorePanel.cpp
+	vgui_TeamFortressViewport.cpp
+	vgui_SpectatorPanel.cpp
+	vgui_teammenu.cpp
+	voice_status.cpp
+	../game_shared/vgui_checkbutton2.cpp
+	../game_shared/vgui_grid.cpp
+	../game_shared/vgui_helpers.cpp
+	../game_shared/vgui_listbox.cpp
+	../game_shared/vgui_loadtga.cpp
+	../game_shared/vgui_scrollbar2.cpp
+	../game_shared/vgui_slider2.cpp
+	../game_shared/voice_banmgr.cpp
+)
+
+if (HAVE_STRLCPY)
+	add_definitions(-DHAVE_STRLCPY)
+else()
+	list(APPEND CLDLL_SOURCES
+		../external/openbsd/strlcpy.c)
+endif()
+
+if (HAVE_STRLCAT)
+	add_definitions(-DHAVE_STRLCAT)
+else()
+	list(APPEND CLDLL_SOURCES
+		../external/openbsd/strlcat.c)
+endif()
+
+include_directories (. hl/ ../dlls ../dlls/wpn_shared ../common ../engine ../pm_shared ../game_shared ../public)
+
+if (GOLDSOURCE_SUPPORT)
+	include_directories (../external/)
+endif()
+
+
+include_directories(../utils/vgui/include)
+
+add_library (${CLDLL_LIBRARY} SHARED ${CLDLL_SOURCES})
+target_link_libraries(${CLDLL_LIBRARY} vcs_info)
+sgtc_configure_library(${CLDLL_LIBRARY}) # C++ standard and --no-undefined, see the top-level CMakeLists.txt
+
+if (GOLDSOURCE_SUPPORT)
+	target_link_libraries( ${CLDLL_LIBRARY} ${CMAKE_DL_LIBS} )
+endif()
+
+target_link_libraries(${CLDLL_LIBRARY} vgui)
+
+if(WIN32)
+	# No .lib suffix: CMake adds it for MSVC, and MinGW needs -luser32/-lwinmm.
+	target_link_libraries( ${CLDLL_LIBRARY} user32 )
+	if (GOLDSOURCE_SUPPORT)
+		target_link_libraries( ${CLDLL_LIBRARY} winmm )
+	endif()
+endif()
+
+set_target_properties (${CLDLL_LIBRARY} PROPERTIES
+	POSITION_INDEPENDENT_CODE 1)
+
+set_target_postfix(${CLDLL_LIBRARY})
+
+if(HAVE_LTO)
+	set_property(TARGET ${CLDLL_LIBRARY} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+
+install(TARGETS ${CLDLL_LIBRARY}
+	RUNTIME DESTINATION "${GAMEDIR}/${CLIENT_INSTALL_DIR}/"
+	LIBRARY DESTINATION "${GAMEDIR}/${CLIENT_INSTALL_DIR}/"
+	PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+		GROUP_READ GROUP_EXECUTE
+		WORLD_READ WORLD_EXECUTE)
+
+if(CMAKE_BUILD_TYPE MATCHES "Release" AND NOT WIN32)
+	if(APPLE)
+		# Apple strip treats -s as a symbol list file, -x keeps exported symbols
+		set(STRIP_FLAGS -x)
+	else()
+		set(STRIP_FLAGS -s)
+	endif()
+	add_custom_command(TARGET ${CLDLL_LIBRARY}
+			POST_BUILD DEPENDS ${CLDLL_LIBRARY}
+			COMMAND ${CMAKE_STRIP} ${STRIP_FLAGS} $<TARGET_FILE:${CLDLL_LIBRARY}>)
+endif()

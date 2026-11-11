@@ -1,0 +1,10 @@
+StargateTC server library (hl.so / hl.dll) — jk_botti component
+
+jk_botti is Copyright (c) Pierre-Marie Baty and contributors, BSD-licensed.
+Vendored from https://github.com/Bots-United/jk_botti at commit
+b8d46629d330928b36f3a523d5f1c1f21b83c628.
+
+Redistributions in binary form must reproduce the BSD disclaimer and the Metamod
+attribution in the documentation or other materials provided with the distribution.
+
+Full license text: bots/jk_botti/jk_botti_license.txt in the source repository.

@@ -1,0 +1,7 @@
+StargateTC server library (hl.so / hl.dll) — zlib component
+
+This software includes zlib data-compression code from the jk_botti vendored tree
+(bots/jk_botti/zlib/), originally by Jean-loup Gailly and Mark Adler.
+
+zlib license (summary): permissive; retain copyright notice in documentation for
+binary distributions. See bots/jk_botti/zlib/README in the source repository.

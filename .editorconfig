@@ -1,0 +1,40 @@
+# https://editorconfig.org
+# Derived from the existing sources: tab indentation (tab = 4 columns), LF line endings.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+# The inherited Valve/FWGS sources have trailing whitespace on thousands of lines. Do not trim whole
+# files on save: it buries the real change in the diff. The sgtc_* files have none, so keep them clean.
+[*.{c,cpp,h}]
+trim_trailing_whitespace = false
+
+[sgtc_*.{cpp,h}]
+trim_trailing_whitespace = true
+
+# cl_dll/vgui_int.h is not valid UTF-8.
+[vgui_int.h]
+charset = unset
+
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+indent_style = space
+trim_trailing_whitespace = false
+
+[*.{bat,def}]
+end_of_line = crlf
+
+# Vendored waf.
+[waf]
+end_of_line = unset
+indent_style = unset
+insert_final_newline = unset

@@ -1,0 +1,2343 @@
+//
+// JK_Botti - be more human!
+//
+// bot_combat.cpp
+//
+
+#define BOTCOMBAT
+
+#include <string.h>
+
+#include <malloc.h>
+
+#include <extdll.h>
+#include <dllapi.h>
+#include <h_export.h>
+#include "botti_meta.h"
+
+#include "bot.h"
+#include "bot_func.h"
+#include "bot_weapons.h"
+#include "bot_skill.h"
+#include "waypoint.h"
+#include "bot_sound.h"
+#include "bot_trace.h"
+#include "bot_tac.h"
+#include "player.h"
+
+extern bot_weapon_t weapon_defs[MAX_WEAPONS];
+extern qboolean b_observer_mode;
+extern qboolean is_team_play;
+extern qboolean checked_teamplay;
+extern int num_logos;
+extern int submod_id;
+extern qboolean b_botdontshoot;
+extern int bot_shoot_breakables;
+
+char g_team_list[TEAMPLAY_TEAMLISTLENGTH];
+char g_team_names[MAX_TEAMS][MAX_TEAMNAME_LENGTH];
+int g_team_scores[MAX_TEAMS];
+int g_num_teams = 0;
+qboolean g_team_limit = FALSE;
+
+typedef struct select_list_s
+{
+   struct select_list_s *next;
+   qboolean use_primary, use_secondary;
+   int percent_start, percent_end, select_index;
+} select_list_t;
+
+
+//
+static qboolean BotAimsAtSomething (bot_t &pBot)
+{
+   if(!pBot.pBotEnemy)
+      return FALSE;
+
+   qboolean visible = FPredictedVisible(pBot);
+
+   return(visible);
+}
+
+
+//
+static void BotPointGun(bot_t &pBot)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // this function purpose is to make the bot move its crosshair to the direction
+   // where it wants to look. There is some kind of filtering for the view, to make
+   // it human-like.
+
+   float frame_time = pBot.f_frame_time / skill_settings[pBot.bot_skill].turn_slowness;
+   float speed; // speed : 0.1 - 1
+   Vector v_deviation;
+   float turn_skill = skill_settings[pBot.bot_skill].turn_skill;
+
+   v_deviation = UTIL_WrapAngles (Vector (pEdict->v.idealpitch, pEdict->v.ideal_yaw, 0) - pEdict->v.v_angle);
+
+   // if bot is aiming at something, aim fast, else take our time...
+   if (pBot.b_combat_longjump)
+      speed = 0.7 + (turn_skill - 1) / 10; // fast aim
+   else if(BotAimsAtSomething (pBot))
+   {
+      float custom = 1.0;
+
+      // customized aim speed with weapons
+      bot_weapon_select_t * pSelect = GetWeaponSelect(pBot.current_weapon.iId);
+      if(pSelect)
+         custom = (pSelect->aim_speed <= 1.0 && pSelect->aim_speed >= 0.0) ? pSelect->aim_speed : 1.0;
+
+      speed = (0.5 * custom + 0.2) + (turn_skill - 1) / (10 * (1.0 - custom) + 10);
+   }
+   else if(pBot.curr_waypoint_index != -1 || !FNullEnt(pBot.pBotPickupItem))
+      speed = 0.5 + (turn_skill - 1) / 15; // medium aim
+   else
+      speed = 0.2 + (turn_skill - 1) / 20; // slow aim
+
+   // thanks Tobias "Killaruna" Heimann and Johannes "@$3.1415rin" Lampel for this one
+   double decay = pow(speed / 2, frame_time * 20);
+   pEdict->v.yaw_speed = (pEdict->v.yaw_speed * decay
+                             + speed * v_deviation.y * (1 - decay))
+                            * frame_time * 20;
+   pEdict->v.pitch_speed = (pEdict->v.pitch_speed * decay
+                               + speed * v_deviation.x * (1 - decay))
+                              * frame_time * 20;
+
+   // influence of y movement on x axis, based on skill (less influence than x on y since it's
+   // easier and more natural for the bot to "move its mouse" horizontally than vertically)
+   if (pEdict->v.pitch_speed > 0)
+      pEdict->v.pitch_speed += pEdict->v.yaw_speed / (skill_settings[pBot.bot_skill].updown_turn_ration * (1 + turn_skill));
+   else
+      pEdict->v.pitch_speed -= pEdict->v.yaw_speed / (skill_settings[pBot.bot_skill].updown_turn_ration * (1 + turn_skill));
+
+   // influence of x movement on y axis, based on skill
+   if (pEdict->v.yaw_speed > 0)
+      pEdict->v.yaw_speed += pEdict->v.pitch_speed / (1 + turn_skill);
+   else
+      pEdict->v.yaw_speed -= pEdict->v.pitch_speed / (1 + turn_skill);
+
+   // move the aim cursor
+   pEdict->v.v_angle = UTIL_WrapAngles (pEdict->v.v_angle + Vector (pEdict->v.pitch_speed, pEdict->v.yaw_speed, 0));
+
+   // set the body angles to point the gun correctly
+   pEdict->v.angles.x = UTIL_WrapAngle (-pEdict->v.v_angle.x / 3);
+   pEdict->v.angles.y = UTIL_WrapAngle (pEdict->v.v_angle.y);
+   pEdict->v.angles.z = 0;
+}
+
+
+// Called before g_engfuncs.pfnRunPlayerMove
+void BotAimPre( bot_t &pBot )
+{
+   // make bot aim and turn
+   BotPointGun(pBot); // update and save this bot's view angles
+
+   // wrap angles that were not wrapped in pointgun
+   pBot.pEdict->v.idealpitch = UTIL_WrapAngle(pBot.pEdict->v.idealpitch);
+   pBot.pEdict->v.ideal_yaw = UTIL_WrapAngle(pBot.pEdict->v.ideal_yaw);
+
+   // special aiming angle for mp5 grenade
+   if(pBot.b_set_special_shoot_angle)
+   {
+      float old_angle = pBot.pEdict->v.v_angle.z;
+
+      pBot.pEdict->v.v_angle.z = pBot.f_special_shoot_angle;
+      pBot.pEdict->v.angles.x = UTIL_WrapAngle (-pBot.pEdict->v.v_angle.x / 3);
+
+      pBot.f_special_shoot_angle = old_angle;
+   }
+}
+
+
+// Called after g_engfuncs.pfnRunPlayerMove
+void BotAimPost( bot_t &pBot )
+{
+   // special aiming angle for mp5 grenade
+   if(pBot.b_set_special_shoot_angle)
+   {
+      pBot.pEdict->v.v_angle.z = pBot.f_special_shoot_angle;
+      pBot.pEdict->v.angles.x = UTIL_WrapAngle (-pBot.pEdict->v.v_angle.x / 3);
+
+      pBot.b_set_special_shoot_angle = FALSE;
+      pBot.f_special_shoot_angle = 0.0;
+   }
+
+   // special case for m249
+   if(pBot.current_weapon.iId == GEARBOX_WEAPON_M249)
+   {
+      if((pBot.pEdict->v.flags & FL_DUCKING) == FL_DUCKING)
+         pBot.f_recoil /= 4;
+   }
+   // special case for eagle
+   else if(pBot.current_weapon.iId == GEARBOX_WEAPON_EAGLE)
+   {
+      if(pBot.eagle_secondary_state != 0)
+         pBot.f_recoil /= 15;
+   }
+
+   // add any recoil left to punch angle now
+   pBot.pEdict->v.punchangle.x += pBot.f_recoil;
+
+   pBot.f_recoil = 0;
+}
+
+
+// flavour xy axis over z on finding closest enemy
+static Vector GetModifiedEnemyDistance(bot_t &pBot, const Vector & distance)
+{
+   return( Vector(distance.x, distance.y, distance.z * skill_settings[pBot.bot_skill].updown_turn_ration) );
+}
+
+
+//
+static void BotResetReactionTime(bot_t &pBot, qboolean have_slow_reaction = FALSE)
+{
+   float delay_min = skill_settings[pBot.bot_skill].react_delay_min;
+   float delay_max = skill_settings[pBot.bot_skill].react_delay_max;
+
+   float react_delay = RANDOM_FLOAT2(delay_min, delay_max);
+
+   if(have_slow_reaction)
+      react_delay *= 4;
+
+   pBot.f_reaction_target_time = gpGlobals->time + react_delay;
+
+   pBot.f_next_find_visible_sound_enemy_time = gpGlobals->time + 0.2f;
+}
+
+
+// called in clientdisconnect
+void free_posdata_list(int idx)
+{
+   posdata_free_list(players[idx].posdata_mem, POSDATA_SIZE, &players[idx].position_latest, &players[idx].position_oldest);
+}
+
+
+static posdata_t *get_posdata_slot(int idx)
+{
+   return posdata_get_slot(players[idx].posdata_mem, POSDATA_SIZE, gpGlobals->time,
+                           &players[idx].position_latest, &players[idx].position_oldest);
+}
+
+
+//
+static void add_next_posdata(int idx, edict_t *pEdict)
+{
+   posdata_t * new_latest = get_posdata_slot(idx);
+
+   JKASSERT(new_latest == NULL);
+   if(new_latest == NULL)
+      return;
+
+   posdata_link_as_latest(&players[idx].position_latest, &players[idx].position_oldest, new_latest);
+
+   players[idx].position_latest->origin = pEdict->v.origin;
+   players[idx].position_latest->velocity = pEdict->v.basevelocity + pEdict->v.velocity;
+
+   players[idx].position_latest->was_alive = !!IsAlive(pEdict);
+   players[idx].position_latest->ducking = (pEdict->v.flags & FL_DUCKING) == FL_DUCKING;
+
+   players[idx].position_latest->time = gpGlobals->time;
+}
+
+
+// remove data older than max + 100ms
+static void timetrim_posdata(int idx)
+{
+   if(!players[idx].position_oldest)
+      return;
+
+   // max + 100ms
+   // max is maximum by skill + max randomness added in GetPredictedPlayerPosition()
+   float cutoff_time = gpGlobals->time - (skill_settings[4].ping_emu_latency + 0.1);
+
+   posdata_timetrim(&players[idx].position_latest, &players[idx].position_oldest, cutoff_time);
+}
+
+
+// called every PlayerPostThink
+void GatherPlayerData(edict_t * pEdict)
+{
+   int idx = -1;
+
+   if(!FNullEnt(pEdict) && !FBitSet(pEdict->v.flags, FL_PROXY))
+      idx = ENTINDEX(pEdict) - 1;
+
+   if(idx < 0 || idx >= gpGlobals->maxClients)
+      return;
+
+   add_next_posdata(idx, pEdict);
+   timetrim_posdata(idx);
+}
+
+
+//
+static Vector AddPredictionVelocityVaritation(bot_t &pBot, const Vector & velocity)
+{
+   if(velocity.x == 0 && velocity.y == 0)
+      return velocity;
+
+   float maxvar = (1.0 + skill_settings[pBot.bot_skill].ping_emu_speed_varitation);
+   float minvar = (1.0 - skill_settings[pBot.bot_skill].ping_emu_speed_varitation);
+
+#if 0
+   Vector2D flat = Vector2D(velocity.x, velocity.y);
+
+   flat = flat.Normalize() * (flat.Length() * RANDOM_FLOAT2(minvar, maxvar));
+
+   return Vector(flat.x, flat.y, velocity.z);
+#else
+   return velocity.Normalize() * (velocity.Length() * RANDOM_FLOAT2(minvar, maxvar));
+#endif
+}
+
+//
+static Vector AddPredictionPositionVaritation(bot_t &pBot)
+{
+   Vector v_rnd_angles;
+
+   v_rnd_angles.x = UTIL_WrapAngle(RANDOM_FLOAT2(-90, 90));
+   v_rnd_angles.y = UTIL_WrapAngle(RANDOM_FLOAT2(-180, 180));
+   v_rnd_angles.z = 0;
+
+   return UTIL_AnglesToForward(v_rnd_angles) * skill_settings[pBot.bot_skill].ping_emu_position_varitation;
+}
+
+
+// Prevent bots from shooting at on ground when aiming on falling player that hits ground (Z axis fixup only)
+static Vector TracePredictedMovement(bot_t &pBot, edict_t *pPlayer, const Vector &v_src, const Vector &cv_velocity, float time, qboolean ducking, qboolean without_velocity)
+{
+   if(without_velocity)
+      return(v_src);
+
+   Vector v_dest, v_velocity;
+
+   v_velocity = AddPredictionVelocityVaritation(pBot, cv_velocity);
+   v_dest = v_src + v_velocity * time + AddPredictionPositionVaritation(pBot);
+
+   TraceResult tr;
+   UTIL_TraceHull( v_src, v_dest, ignore_monsters, (ducking) ? head_hull : human_hull, pPlayer ? pPlayer->v.pContainingEntity : NULL, &tr);
+
+   if(!tr.fStartSolid && tr.flFraction < 1.0f)
+      v_dest.z = tr.vecEndPos.z;
+
+   return(v_dest);
+}
+
+
+// used instead of using pBotEnemy->v.origin in aim code.
+//  if bot's aim lags behind moving target increase value of AHEAD_MULTIPLIER.
+#define AHEAD_MULTIPLIER 1.5
+
+static int GetPredictedPlayerPosition_FindTimeSlots(bot_t &pBot, edict_t *pPlayer, float time, posdata_t *&newer, posdata_t *&older, Vector &exact_result, qboolean without_velocity)
+{
+   if(FNullEnt(pPlayer))
+      return -1;
+
+   int idx = ENTINDEX(pPlayer) - 1;
+   if(idx < 0 || idx >= gpGlobals->maxClients || !players[idx].position_latest || !players[idx].position_oldest)
+      return 0;
+
+   // find position data slots that are around 'time'
+   newer = players[idx].position_latest;
+   older = 0;
+   while(newer)
+   {
+      if(newer->time > time)
+      {
+         if(newer->older == newer)
+            break;
+
+         //this is too new for us.. proceed
+         newer = newer->older;
+         continue;
+      }
+      if(newer->time == time)
+      {
+         exact_result = TracePredictedMovement(pBot, pPlayer, newer->origin, newer->velocity, fabs(gpGlobals->time - newer->time) * AHEAD_MULTIPLIER, newer->ducking, without_velocity);
+         return 1;
+      }
+
+      //this time is older than previous..
+      older = newer;
+      newer = older->newer;
+      break;
+   }
+
+   return 2;
+}
+
+static qboolean GetPredictedPlayerPosition_HandleMissingData(bot_t &pBot, edict_t *pPlayer, float time, posdata_t *&newer, posdata_t *&older, posdata_t &newertmp, Vector &result, qboolean without_velocity)
+{
+   int idx = ENTINDEX(pPlayer) - 1;
+
+   if(!older)
+   {
+      result = TracePredictedMovement(pBot, pPlayer, players[idx].position_oldest->origin, players[idx].position_oldest->velocity, fabs(gpGlobals->time - players[idx].position_oldest->time) * AHEAD_MULTIPLIER, players[idx].position_oldest->ducking, without_velocity);
+      return TRUE;
+   }
+
+   if(!newer)
+   {
+      memset(&newertmp, 0, sizeof(newertmp));
+
+      newertmp.origin = pPlayer->v.origin;
+      newertmp.velocity = pPlayer->v.basevelocity + pPlayer->v.velocity;
+      newertmp.time = gpGlobals->time;
+      newertmp.was_alive = !!IsAlive(pPlayer);
+
+      newer = &newertmp;
+   }
+
+   // Don't mix dead data with alive data.
+   // When one sample is dead and other alive (target just died or respawned),
+   // use the dead/last-known position instead of the new spawn location.
+   // This prevents unnatural aim snaps to potentially non-visible respawn
+   // locations -- a respawned target is effectively a new entity.
+   if(!newer->was_alive && older->was_alive)
+   {
+      result = TracePredictedMovement(pBot, pPlayer, newer->origin, newer->velocity, fabs(gpGlobals->time - newer->time) * AHEAD_MULTIPLIER, newer->ducking, without_velocity);
+      return TRUE;
+   }
+   if(!older->was_alive && newer->was_alive)
+   {
+      result = TracePredictedMovement(pBot, pPlayer, older->origin, older->velocity, fabs(gpGlobals->time - older->time) * AHEAD_MULTIPLIER, older->ducking, without_velocity);
+      return TRUE;
+   }
+
+   return FALSE;
+}
+
+static Vector GetPredictedPlayerPosition_Interpolate(bot_t &pBot, edict_t *pPlayer, posdata_t *newer, posdata_t *older, float time, qboolean without_velocity)
+{
+   float newer_diff = fabs(newer->time - time);
+   float older_diff = fabs(older->time - time);
+   float total_diff = newer_diff + older_diff;
+
+   if(total_diff <= 0.0)
+   {
+      // zero div would crash server..
+      // zero diff means that both data are from same time
+      return(TracePredictedMovement(pBot, pPlayer, newer->origin, newer->velocity, fabs(gpGlobals->time - newer->time) * AHEAD_MULTIPLIER, newer->ducking, without_velocity));
+   }
+
+   // make weighted average
+   Vector pred_origin = (older_diff/total_diff) * newer->origin + (newer_diff/total_diff) * older->origin;
+   Vector pred_velocity;
+   if(!without_velocity)
+      pred_velocity = (older_diff/total_diff) * newer->velocity + (newer_diff/total_diff) * older->velocity;
+
+   // use old origin and use old velocity to predict current position
+   return(TracePredictedMovement(pBot, pPlayer, pred_origin, pred_velocity, fabs(gpGlobals->time - time) * AHEAD_MULTIPLIER, newer->ducking, without_velocity));
+}
+
+static Vector GetPredictedPlayerPosition(bot_t &pBot, edict_t * pPlayer, qboolean without_velocity = FALSE)
+{
+   posdata_t * newer;
+   posdata_t * older;
+   posdata_t newertmp;
+   Vector result;
+
+   // get prediction time based on bot skill
+   float time = gpGlobals->time - skill_settings[pBot.bot_skill].ping_emu_latency;
+
+   int slot_result = GetPredictedPlayerPosition_FindTimeSlots(pBot, pPlayer, time, newer, older, result, without_velocity);
+   if(slot_result == -1)
+      return(Vector(0,0,0));
+   if(slot_result == 0)
+      return(UTIL_GetOrigin(pPlayer));
+   if(slot_result == 1)
+      return(result);
+
+   if(GetPredictedPlayerPosition_HandleMissingData(pBot, pPlayer, time, newer, older, newertmp, result, without_velocity))
+      return(result);
+
+   return(GetPredictedPlayerPosition_Interpolate(pBot, pPlayer, newer, older, time, without_velocity));
+}
+
+
+//
+qboolean FPredictedVisible(bot_t &pBot)
+{
+   if(!pBot.pBotEnemy)
+      return(FALSE);
+
+   Vector v_enemy = GetPredictedPlayerPosition(pBot, pBot.pBotEnemy, TRUE); //only get position
+
+   return(FVisibleEnemy(v_enemy, pBot.pEdict, pBot.pBotEnemy));
+}
+
+
+#if 0
+//
+static qboolean GetPredictedIsAlive(edict_t * pPlayer, float time)
+{
+   posdata_t * newer;
+   int idx;
+
+   idx = ENTINDEX(pPlayer) - 1;
+   if(idx < 0 || idx >= gpGlobals->maxClients || !players[idx].position_latest || !players[idx].position_oldest)
+      return(!!IsAlive(pPlayer));
+
+   // find position data slots that are around 'time'
+   newer = players[idx].position_latest;
+   while(newer)
+   {
+      if(newer->time > time)
+      {
+         if(newer->older == newer)
+            break;
+
+         //this is too new for us.. proceed
+         newer = newer->older;
+         continue;
+      }
+      if(newer->time == time)
+      {
+         return(newer->was_alive);
+      }
+
+      //this time is older than previous..
+      newer = newer->newer;
+      break;
+   }
+
+   if(!newer)
+   {
+      return(!!IsAlive(pPlayer));
+   }
+
+   return(newer->was_alive);
+}
+
+
+//
+static qboolean HaveSameModels(edict_t * pEnt1, edict_t * pEnt2)
+{
+   char *infobuffer;
+   char model_name1[32];
+   char model_name2[32];
+
+   infobuffer = GET_INFOKEYBUFFER( pEnt1 );
+   *model_name1=0; strncat(model_name1, INFOKEY_VALUE (infobuffer, "model"), sizeof(model_name1));
+
+   infobuffer = GET_INFOKEYBUFFER( pEnt2 );
+   *model_name2=0; strncat(model_name2, INFOKEY_VALUE (infobuffer, "model"), sizeof(model_name2));
+
+   return(!stricmp(model_name1, model_name2));
+}
+#endif
+
+
+//
+static qboolean FCanShootInHead(edict_t * pEdict, edict_t * pTarget, const Vector & v_dest)
+{
+   if(!FIsClassname("player", pTarget))
+      return FALSE;
+
+   float neg = pTarget->v.view_ofs.z >= 2.0f ? 2.0f : 0.0f;
+
+   // first check for if head is visible
+   if(!FVisible( pTarget->v.origin + (pTarget->v.view_ofs - Vector(0,0,neg)), pEdict, pTarget ))
+      return FALSE;
+
+   // check center/feet
+   if(!FVisible( pTarget->v.origin, pEdict, pTarget ))
+      if(!FVisible( pTarget->v.origin - (pTarget->v.view_ofs - Vector(0,0,neg)), pEdict, pTarget ))
+         return TRUE; //only head visible
+
+   float distance = (v_dest - pEdict->v.origin).Length();
+
+   Vector2D triangle;
+
+   triangle.x = distance;
+   triangle.y = pTarget->v.view_ofs.z - neg;
+
+   if(fcos(deg2rad(12.5)) < (distance / triangle.Length()))
+      return FALSE; //greater angle, smaller cosine
+
+   return TRUE;
+}
+
+
+static qboolean AreTeamMates(edict_t * pOther, edict_t * pEdict)
+{
+   // is team play enabled?
+   if (is_team_play)
+   {
+      char other_model[MAX_TEAMNAME_LENGTH];
+      char edict_model[MAX_TEAMNAME_LENGTH];
+
+      return(!stricmp(UTIL_GetTeam(pOther, other_model, sizeof(other_model)), UTIL_GetTeam(pEdict, edict_model, sizeof(edict_model))));
+   }
+
+   return FALSE;
+}
+
+
+//
+static edict_t *BotFindEnemyNearestToPoint(bot_t &pBot, const Vector &v_point, float radius, Vector *v_found)
+{
+   edict_t *pBotEdict = pBot.pEdict;
+
+   float nearestdistance = radius;
+   edict_t * pNearestEnemy = NULL;
+   Vector v_nearestorigin = Vector(0,0,0);
+
+   // search the world for players...
+   for (int i = 1; i <= gpGlobals->maxClients; i++)
+   {
+      Vector v_player;
+      edict_t *pPlayer = INDEXENT(i);
+
+      // skip invalid players and skip self (i.e. this bot)
+      if ((pPlayer) && (!pPlayer->free) && (pPlayer != pBotEdict) && !FBitSet(pPlayer->v.flags, FL_PROXY))
+      {
+         if ((b_observer_mode) && !(FBitSet(pPlayer->v.flags, FL_FAKECLIENT) || FBitSet(pPlayer->v.flags, FL_THIRDPARTYBOT)))
+            continue;
+
+         // check first.. since this is very fast check
+         Vector v_origin = pPlayer->v.origin;
+         float distance = (v_origin - v_point).Length();
+         if (distance > nearestdistance)
+            continue;
+
+         // skip this player if not alive (i.e. dead or dying)
+         if (!IsAlive(pPlayer))
+            continue;
+
+         // skip this player if respawned lately
+         float time_since_respawn = UTIL_GetTimeSinceRespawn(pPlayer);
+         if(time_since_respawn != -1.0 && time_since_respawn < skill_settings[pBot.bot_skill].respawn_react_delay)
+            continue;
+
+         // skip this player if facing wall
+         if(IsPlayerChatProtected(pPlayer))
+            continue;
+
+         // don't target teammates
+         if(AreTeamMates(pPlayer, pBotEdict))
+            continue;
+
+         // see if bot can't see the player...
+         if (!FVisible( v_point, pPlayer, pBotEdict ))
+            continue;
+
+         nearestdistance = distance;
+         pNearestEnemy = pPlayer;
+         v_nearestorigin = v_origin;
+      }
+   }
+
+   if(nearestdistance <= radius)
+   {
+      if(v_found)
+         *v_found = v_nearestorigin;
+
+      return(pNearestEnemy);
+   }
+
+   return(NULL);
+}
+
+
+// called on every think frame
+void BotUpdateHearingSensitivity(bot_t &pBot)
+{
+   if (pBot.pBotEnemy != NULL)
+   {
+      // have enemy, use best hearing sensitivity for all
+      pBot.f_current_hearing_sensitivity = skill_settings[BEST_BOT_LEVEL].hearing_sensitivity;
+      return;
+   }
+
+   // reduce from best to worst in 3 sec
+   pBot.f_current_hearing_sensitivity -= (skill_settings[BEST_BOT_LEVEL].hearing_sensitivity - skill_settings[WORST_BOT_LEVEL].hearing_sensitivity) * pBot.f_frame_time / 3;
+   if (pBot.f_current_hearing_sensitivity < skill_settings[pBot.bot_skill].hearing_sensitivity)
+      pBot.f_current_hearing_sensitivity = skill_settings[pBot.bot_skill].hearing_sensitivity;
+}
+
+
+//
+static float BotGetHearingSensitivity(bot_t &pBot)
+{
+   if(pBot.f_current_hearing_sensitivity < skill_settings[pBot.bot_skill].hearing_sensitivity)
+      return skill_settings[pBot.bot_skill].hearing_sensitivity;
+   return pBot.f_current_hearing_sensitivity;
+}
+
+
+//
+static edict_t *BotFindVisibleSoundEnemy( bot_t &pBot )
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   int iSound;
+   CSound *pCurrentSound;
+   float mindistance;
+   edict_t *pMinDistanceEdict = NULL;
+
+   mindistance = 99999.0;
+
+   // walk through active sound linked list
+   for(iSound = CSoundEnt::ActiveList(); iSound != SOUNDLIST_EMPTY; iSound = pCurrentSound->m_iNext)
+   {
+      pCurrentSound = CSoundEnt::SoundPointerForIndex( iSound );
+
+      if(!pCurrentSound)
+         break;
+
+      // ignore sounds created by bot itself
+      if(pCurrentSound->m_iBotOwner == (&pBot - &bots[0]))
+         continue;
+
+      // is sound too far away? (bot cannot hear)
+      float s_distance = (pCurrentSound->m_vecOrigin - pEdict->v.origin).Length();
+      if(s_distance > pCurrentSound->m_iVolume * BotGetHearingSensitivity(pBot))
+         continue;
+
+      // more distant than what we got already?
+      float distance = (pCurrentSound->m_vecOrigin - pEdict->v.origin).Length();
+      if (distance >= mindistance)
+         continue;
+
+      // any enemy near sound?
+      Vector v_enemy = Vector(0,0,0);
+      edict_t * pNewEnemy = BotFindEnemyNearestToPoint(pBot, pCurrentSound->m_vecOrigin, 512.0, &v_enemy);
+      if(FNullEnt(pNewEnemy))
+         continue;
+
+      // is enemy visible?
+      if (!FVisible( v_enemy, pEdict, pNewEnemy ))
+         continue;
+
+      mindistance = distance;
+      pMinDistanceEdict = pNewEnemy;
+   }
+
+   return pMinDistanceEdict;
+}
+
+
+//
+void BotRemoveEnemy( bot_t &pBot, qboolean b_keep_tracking, const char *reason )
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   //JKASSERT(pBot.pBotEnemy == NULL);
+
+   // track enemy?
+   if(pBot.pBotEnemy != NULL && b_keep_tracking)
+   {
+      float track_time = RANDOM_FLOAT2(skill_settings[pBot.bot_skill].track_sound_time_min, skill_settings[pBot.bot_skill].track_sound_time_max);
+
+      pBot.wpt_goal_type = WPT_GOAL_TRACK_SOUND;
+      pBot.waypoint_goal = -1;
+
+      pBot.pTrackSoundEdict = pBot.pBotEnemy;
+      pBot.f_track_sound_time = gpGlobals->time + track_time; //TODO: bot skill 20.0f .. ~5.0f
+
+      if(BotUpdateTrackSoundGoal(pBot) && pBot.waypoint_goal == -1)
+      {
+         int waypoint = WaypointFindNearest(pBot.pTrackSoundEdict, 1024);
+
+         //if(pBot.waypoint_goal != waypoint)
+         //   UTIL_ConsolePrintf("[%s] Couldn't find sound to track, using edict-wpt: %d -> %d", pBot.name, pBot.waypoint_goal, waypoint);
+
+         pBot.waypoint_goal = waypoint;
+      }
+   }
+
+   if (b_keep_tracking)
+      BotTrace(pBot, "elost (%s) trk=%d", reason, pBot.waypoint_goal);
+   else
+      BotTrace(pBot, "elost (%s)", reason);
+
+   // don't have an enemy anymore so null out the pointer...
+   pBot.pBotEnemy = NULL;
+
+   // reset reactions
+   BotResetReactionTime(pBot);
+   pBot.f_next_find_visible_sound_enemy_time = gpGlobals->time + 0.2f;
+
+   // update bot waypoint after combat
+   pBot.curr_waypoint_index = WaypointFindNearest(pEdict, 1024);
+}
+
+
+//#define DEBUG_ENEMY_SELECT 1
+#if DEBUG_ENEMY_SELECT
+static char g_debug_enemy_info[1024];
+static const char *g_debug_enemy_type = "";
+#endif
+
+
+// Early exit if b_botdontshoot; clears enemy, presses reload
+static qboolean BotFindEnemyCheckDontShoot(bot_t &pBot)
+{
+   if (!b_botdontshoot)
+      return FALSE;
+
+   edict_t *pEdict = pBot.pEdict;
+
+   pBot.f_bot_see_enemy_time = -1;  // so we won't keep reloading
+   pBot.v_bot_see_enemy_origin = Vector(-99999,-99999,-99999);
+
+   pEdict->v.button |= IN_RELOAD;  // press reload button
+
+   BotRemoveEnemy(pBot, FALSE, "dontshoot");
+
+   return TRUE;
+}
+
+
+static qboolean BotFindEnemyMaintainCurrent_CheckValidity(bot_t &pBot)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // if the enemy is dead?
+   // if the enemy is chat protected?
+   // is the enemy dead?, assume bot killed it
+   qboolean chatprot = FALSE;
+   if (!IsAlive(pBot.pBotEnemy) || TRUE == (chatprot = IsPlayerChatProtected(pBot.pBotEnemy)))
+   {
+      // the enemy is dead, jump for joy about 10% of the time
+      if (!chatprot && RANDOM_LONG2(1, 100) <= 10)
+         pEdict->v.button |= IN_JUMP;
+
+      // don't have an enemy anymore so null out the pointer...
+      BotRemoveEnemy(pBot, FALSE, chatprot ? "chat_protected" : "enemy_dead");
+
+      // level look
+      pEdict->v.idealpitch = 0;
+
+      return FALSE;
+   }
+
+   return TRUE;
+}
+
+static int BotFindEnemyMaintainCurrent_StickyBreakable(bot_t &pBot)
+{
+   // mode 2: sticky breakable targeting — keep targeting a path-blocking
+   // breakable as long as bot hasn't moved too far away from it
+   if (bot_shoot_breakables == 2 && UTIL_LookupBreakable(pBot.pBotEnemy))
+   {
+      edict_t *pEdict = pBot.pEdict;
+      Vector v_origin = UTIL_GetOriginWithExtent(pBot, pBot.pBotEnemy);
+      float dist = (pEdict->v.origin - v_origin).Length();
+
+      if (dist < 500 && !v_origin.is_zero_vector() &&
+          FVisible( v_origin, pEdict, pBot.pBotEnemy ))
+      {
+         // face the breakable
+         Vector v_enemy = v_origin - pEdict->v.origin;
+         Vector bot_angles = UTIL_VecToAngles( v_enemy );
+
+         pEdict->v.ideal_yaw = bot_angles.y;
+
+         BotFixIdealYaw(pEdict);
+
+         pBot.f_bot_see_enemy_time = gpGlobals->time;
+         pBot.v_bot_see_enemy_origin = v_origin;
+
+         return 1; // keep targeting this breakable
+      }
+
+      // too far or not visible, drop it
+      BotRemoveEnemy(pBot, FALSE, "breakable_lost");
+      pEdict->v.idealpitch = 0;
+
+      return -1;
+   }
+
+   return 0;
+}
+
+static qboolean BotFindEnemyMaintainCurrent_TrackVisibility(bot_t &pBot)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // non-breakable enemy visibility tracking
+   Vector vecPredEnemy = UTIL_AdjustOriginWithExtent(pBot, GetPredictedPlayerPosition(pBot, pBot.pBotEnemy), pBot.pBotEnemy);
+
+   Vector vecEnd = vecPredEnemy;
+   if(FCanShootInHead(pEdict, pBot.pBotEnemy, vecPredEnemy))
+      vecEnd += pBot.pBotEnemy->v.view_ofs;
+
+   if( FInViewCone( vecEnd, pEdict ) && FVisibleEnemy( vecEnd, pEdict, pBot.pBotEnemy ))
+   {
+      // face the enemy
+      Vector v_enemy = vecPredEnemy - pEdict->v.origin;
+      Vector bot_angles = UTIL_VecToAngles( v_enemy );
+
+      pEdict->v.ideal_yaw = bot_angles.y;
+
+      BotFixIdealYaw(pEdict);
+
+      // keep track of when we last saw an enemy
+      pBot.f_bot_see_enemy_time = gpGlobals->time;
+      pBot.v_bot_see_enemy_origin = UTIL_GetOrigin(pBot.pBotEnemy);
+
+      return TRUE; // don't change pBot.pBotEnemy
+   }
+
+   // enemy has gone out of bot's line of sight
+   if( pBot.f_bot_see_enemy_time > 0 && pBot.f_bot_see_enemy_time + 0.5 >= gpGlobals->time)
+   {
+      // start sound tracking
+      char vis_reason[80];
+      BotTraceFormat(vis_reason, sizeof(vis_reason),
+         "oos/%s p=%.0f,%.0f,%.0f e=%.0f,%.0f,%.0f",
+         FInViewCone(vecEnd, pEdict) ? "blk" : "vcone",
+         pEdict->v.origin.x, pEdict->v.origin.y, pEdict->v.origin.z,
+         pBot.pBotEnemy->v.origin.x, pBot.pBotEnemy->v.origin.y, pBot.pBotEnemy->v.origin.z);
+      BotRemoveEnemy(pBot, TRUE, vis_reason);
+
+      // level look
+      pEdict->v.idealpitch = 0;
+   }
+
+   return FALSE;
+}
+
+// A TAC must never keep the slot once a visible enemy player is available.
+// Defined after BotFindEnemySearchPlayers_IsValidCandidate so it can reuse the
+// exact player-candidate rules (team, respawn delay, chat protection, LOS).
+static qboolean BotFindEnemyMaintainCurrent_PlayerPreemptsTac(bot_t &pBot);
+
+// Validate existing enemy (dead/chat-protected, sticky breakable mode, visibility tracking).
+// Returns TRUE if enemy still valid (caller returns)
+static qboolean BotFindEnemyMaintainCurrent(bot_t &pBot)
+{
+   if (pBot.pBotEnemy == NULL)
+      return FALSE;
+
+   // enemy is still alive
+   if (!BotFindEnemyMaintainCurrent_CheckValidity(pBot))
+      return FALSE;
+
+   int breakable_result = BotFindEnemyMaintainCurrent_StickyBreakable(pBot);
+   if (breakable_result == 1)
+      return TRUE;
+   if (breakable_result == -1)
+      return FALSE;
+
+   if (BotFindEnemyMaintainCurrent_PlayerPreemptsTac(pBot))
+   {
+      BotRemoveEnemy(pBot, FALSE, "tac_player_priority");
+      pBot.pEdict->v.idealpitch = 0;
+      return FALSE;
+   }
+
+   return BotFindEnemyMaintainCurrent_TrackVisibility(pBot);
+}
+
+
+static qboolean BotFindEnemySearchBreakables_IsValidCandidate(bot_t &pBot, breakable_list_t *pBreakable, float nearestdistance, float &distance, Vector &v_origin)
+{
+   // removed? null?
+   if(FNullEnt (pBreakable->pEdict))
+      return FALSE;
+
+   // cannot take damage
+   if((int)pBreakable->pEdict->v.takedamage == DAMAGE_NO ||
+      pBreakable->pEdict->v.solid == SOLID_NOT ||
+      pBreakable->pEdict->v.deadflag == DEAD_DEAD ||
+      !pBreakable->material_breakable ||
+      pBreakable->pEdict->v.health <= 0)
+      return FALSE;
+
+   if (pBreakable->pEdict->v.health > 8000)
+      return FALSE; // skip breakables with large health
+
+   v_origin = UTIL_GetOriginWithExtent(pBot, pBreakable->pEdict);
+
+   // 0,0,0 is considered invalid
+   if(v_origin.is_zero_vector())
+      return FALSE;
+
+   edict_t *pEdict = pBot.pEdict;
+   distance = GetModifiedEnemyDistance(pBot, v_origin - pEdict->v.origin).Length();
+   if (distance >= nearestdistance)
+      return FALSE;
+
+   // see if bot can't see ...
+   if (!(FInViewCone( v_origin, pEdict ) && FVisible( v_origin, pEdict, pBreakable->pEdict )))
+      return FALSE;
+
+   return TRUE;
+}
+
+static void BotFindEnemySearchBreakables_CheckAndUpdate(bot_t &pBot, breakable_list_t *pBreakable, float distance, const Vector &v_origin, edict_t *&pNewEnemy, Vector &v_newenemy, float &nearestdistance)
+{
+   nearestdistance = distance;
+   pNewEnemy = pBreakable->pEdict;
+   v_newenemy = v_origin;
+
+#if DEBUG_ENEMY_SELECT
+   g_debug_enemy_type = "breakable";
+   snprintf(g_debug_enemy_info, sizeof(g_debug_enemy_info), "%s[or:e-%.1f:%.1f:%.1f, or:o-%.1f:%.1f:%.1f, mins-%.1f:%.1f:%.1f, maxs-%.1f:%.1f:%.1f, absmin-%.1f:%.1f:%.1f, size-%.1f:%.1f:%.1f, td-%.0f, s-%d, df-%d, h-%.0f]",
+       g_debug_enemy_type, v_origin.x, v_origin.y, v_origin.z,
+       UTIL_GetOrigin(pBreakable->pEdict).x, UTIL_GetOrigin(pBreakable->pEdict).y, UTIL_GetOrigin(pBreakable->pEdict).z,
+       pBreakable->pEdict->v.mins.x, pBreakable->pEdict->v.mins.y, pBreakable->pEdict->v.mins.z,
+       pBreakable->pEdict->v.maxs.x, pBreakable->pEdict->v.maxs.y, pBreakable->pEdict->v.maxs.z,
+            pBreakable->pEdict->v.absmin.x, pBreakable->pEdict->v.absmin.y, pBreakable->pEdict->v.absmin.z,
+       pBreakable->pEdict->v.size.x, pBreakable->pEdict->v.size.y, pBreakable->pEdict->v.size.z,
+       pBreakable->pEdict->v.takedamage,
+       pBreakable->pEdict->v.solid,
+       pBreakable->pEdict->v.deadflag,
+       pBreakable->pEdict->v.health
+     );
+   g_debug_enemy_type = g_debug_enemy_info;
+#endif
+}
+
+// Mode 1: iterate func_breakables, update pNewEnemy/v_newenemy/nearestdistance
+static void BotFindEnemySearchBreakables(bot_t &pBot, edict_t *&pNewEnemy, Vector &v_newenemy, float &nearestdistance)
+{
+   if (bot_shoot_breakables != 1)
+      return;
+
+   // search func_breakables that we collected at map start (We need to collect in order to get the material value)
+   breakable_list_t *pBreakable = NULL;
+   while((pBreakable = UTIL_FindBreakable(pBreakable)) != NULL)
+   {
+      float distance;
+      Vector v_origin;
+
+      if (!BotFindEnemySearchBreakables_IsValidCandidate(pBot, pBreakable, nearestdistance, distance, v_origin))
+         continue;
+
+      BotFindEnemySearchBreakables_CheckAndUpdate(pBot, pBreakable, distance, v_origin, pNewEnemy, v_newenemy, nearestdistance);
+   }
+}
+
+
+// Search monsters within 1000 units
+static void BotFindEnemySearchMonsters(bot_t &pBot, edict_t *&pNewEnemy, Vector &v_newenemy, float &nearestdistance)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // search the world for monsters...
+   edict_t *pMonster = NULL;
+   while (!FNullEnt (pMonster = UTIL_FindEntityInSphere (pMonster, pEdict->v.origin, 1000)))
+   {
+      if (!(pMonster->v.flags & FL_MONSTER) || (int)pMonster->v.takedamage == DAMAGE_NO)
+         continue; // discard anything that is not a monster
+
+      if (!IsAlive (pMonster))
+         continue; // discard dead or dying monsters
+
+      // 0,0,0 is considered invalid
+      if(pMonster->v.origin.is_zero_vector())
+         continue;
+
+      if (FIsClassname(pMonster, "hornet"))
+         continue; // skip hornets
+
+      if (FIsClassname(pMonster, "monster_snark"))
+         continue; // skip snarks
+
+      if (FIsClassname(pMonster, "monster_penguin"))
+         continue; // skip penguins
+
+      if (pMonster->v.health > 4000)
+         continue; // skip monsters with large health
+
+      float distance = GetModifiedEnemyDistance(pBot, UTIL_GetOriginWithExtent(pBot, pMonster) - pEdict->v.origin).Length();
+      if (distance >= nearestdistance)
+         continue;
+
+      Vector vecEnd = pMonster->v.origin + pMonster->v.view_ofs;
+
+      // see if bot can't see ...
+      if (!(FInViewCone( vecEnd, pEdict ) && FVisibleEnemy( vecEnd, pEdict, pMonster )))
+         continue;
+
+      nearestdistance = distance;
+      pNewEnemy = pMonster;
+      v_newenemy = pMonster->v.origin;
+
+#if DEBUG_ENEMY_SELECT
+      g_debug_enemy_type = "monster";
+      snprintf(g_debug_enemy_info, sizeof(g_debug_enemy_info), "%s[or:o-%.1f:%.1f:%.1f, or:g-%.1f:%.1f:%.1f, td-%.0f(%f), df-%d, h-%.0f, f-%d, s-%d]",
+          g_debug_enemy_type,
+          pMonster->v.origin.x, pMonster->v.origin.y, pMonster->v.origin.z,
+          UTIL_GetOrigin(pMonster).x, UTIL_GetOrigin(pMonster).y, UTIL_GetOrigin(pMonster).z,
+          pMonster->v.takedamage, pMonster->v.takedamage - (long long)pMonster->v.takedamage,
+          pMonster->v.deadflag,
+          pMonster->v.health,
+          pMonster->v.flags,
+          pMonster->v.solid
+        );
+      g_debug_enemy_type = g_debug_enemy_info;
+#endif
+   }
+}
+
+
+static qboolean BotFindEnemySearchPlayers_IsValidCandidate(bot_t &pBot, edict_t *pPlayer, float nearestdistance, float &distance)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // skip invalid players and skip self (i.e. this bot)
+   if (!(pPlayer) || (pPlayer->free) || (pPlayer == pEdict) || FBitSet(pPlayer->v.flags, FL_PROXY))
+      return FALSE;
+
+   if ((b_observer_mode) && !(FBitSet(pPlayer->v.flags, FL_FAKECLIENT) || FBitSet(pPlayer->v.flags, FL_THIRDPARTYBOT)))
+      return FALSE;
+
+   // 0,0,0 is considered invalid
+   if(pPlayer->v.origin.is_zero_vector())
+      return FALSE;
+
+   // skip this player if not alive (i.e. dead or dying)
+   if (!IsAlive(pPlayer))
+      return FALSE;
+
+   // skip this player if facing wall
+   if(IsPlayerChatProtected(pPlayer))
+      return FALSE;
+
+   // don't target teammates
+   if(AreTeamMates(pPlayer, pEdict))
+      return FALSE;
+
+   distance = GetModifiedEnemyDistance(pBot, UTIL_GetOriginWithExtent(pBot, pPlayer) - pEdict->v.origin).Length();
+   if (distance >= nearestdistance)
+      return FALSE;
+
+   // skip this player if respawned lately
+   float time_since_respawn = UTIL_GetTimeSinceRespawn(pPlayer);
+   if(time_since_respawn != -1.0 && time_since_respawn < skill_settings[pBot.bot_skill].respawn_react_delay)
+      return FALSE;
+
+   Vector vecEnd = GetGunPosition(pPlayer);
+
+   // see if bot can't see the player...
+   if (!(FInViewCone( vecEnd, pEdict ) && FVisibleEnemy( vecEnd, pEdict, pPlayer )))
+      return FALSE;
+
+   return TRUE;
+}
+
+static qboolean BotFindEnemyMaintainCurrent_PlayerPreemptsTac(bot_t &pBot)
+{
+   if (FNullEnt(pBot.pBotEnemy) || !FIsClassname(pBot.pBotEnemy, "monster_tac"))
+      return FALSE;
+
+   // This is a full player scan (LOS traces), so run it four times a second
+   // rather than every frame the bot spends shooting a TAC.
+   if (gpGlobals->time < pBot.f_tac_player_check_time)
+      return FALSE;
+   pBot.f_tac_player_check_time = gpGlobals->time + 0.25f;
+
+   // Same candidate rules as the normal player search, with an unlimited
+   // radius: any valid visible enemy player outranks a TAC.
+   for (int i = 1; i <= gpGlobals->maxClients; i++)
+   {
+      float distance;
+
+      if (BotFindEnemySearchPlayers_IsValidCandidate(pBot, INDEXENT(i), 99999.0f, distance))
+         return TRUE;
+   }
+
+   return FALSE;
+}
+
+
+static void BotFindEnemySearchPlayers_UpdateBest(bot_t &pBot, edict_t *pPlayer, float distance, edict_t *&pNewEnemy, Vector &v_newenemy, float &nearestdistance)
+{
+   nearestdistance = distance;
+   pNewEnemy = pPlayer;
+   v_newenemy = pPlayer->v.origin;
+
+#if DEBUG_ENEMY_SELECT
+   g_debug_enemy_type = "player";
+   snprintf(g_debug_enemy_info, sizeof(g_debug_enemy_info), "%s[or:o-%.1f:%.1f:%.1f, or:g-%.1f:%.1f:%.1f, mins-%.1f:%.1f:%.1f, maxs-%.1f:%.1f:%.1f, absmin-%.1f:%.1f:%.1f, size-%.1f:%.1f:%.1f, td-%.0f(%f), df-%d, h-%.0f, f-%d, s-%d]",
+    g_debug_enemy_type,
+    pPlayer->v.origin.x, pPlayer->v.origin.y, pPlayer->v.origin.z,
+    UTIL_GetOrigin(pPlayer).x, UTIL_GetOrigin(pPlayer).y, UTIL_GetOrigin(pPlayer).z,
+    pPlayer->v.mins.x, pPlayer->v.mins.y, pPlayer->v.mins.z,
+    pPlayer->v.maxs.x, pPlayer->v.maxs.y, pPlayer->v.maxs.z,
+         pPlayer->v.absmin.x, pPlayer->v.absmin.y, pPlayer->v.absmin.z,
+    pPlayer->v.size.x, pPlayer->v.size.y, pPlayer->v.size.z,
+    pPlayer->v.takedamage, pPlayer->v.takedamage - (long long)pPlayer->v.takedamage,
+    pPlayer->v.deadflag,
+    pPlayer->v.health,
+    pPlayer->v.flags,
+    pPlayer->v.solid
+  );
+   g_debug_enemy_type = g_debug_enemy_info;
+#endif
+}
+
+// Search all clients for enemy players
+static void BotFindEnemySearchPlayers(bot_t &pBot, edict_t *&pNewEnemy, Vector &v_newenemy, float &nearestdistance)
+{
+   // search the world for players...
+   for (int i = 1; i <= gpGlobals->maxClients; i++)
+   {
+      edict_t *pPlayer = INDEXENT(i);
+      float distance;
+
+      if (!BotFindEnemySearchPlayers_IsValidCandidate(pBot, pPlayer, nearestdistance, distance))
+         continue;
+
+      BotFindEnemySearchPlayers_UpdateBest(pBot, pPlayer, distance, pNewEnemy, v_newenemy, nearestdistance);
+   }
+}
+
+
+// Search deployed enemy TACs (dlls/sgtc_monsters.cpp monster_tac). They are
+// CLASS_MACHINE without FL_MONSTER, so BotFindEnemySearchMonsters skips them.
+// The decision rules are pure (bot_tac.h / dlls/sgtc_bots_tac.cpp); this
+// function only gathers the observable facts and pays for a line trace when
+// visibility is the last remaining gate.
+static void BotFindEnemySearchTacs(bot_t &pBot, edict_t *&pNewEnemy, Vector &v_newenemy, float &nearestdistance)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // Same clamp as the TAC itself (SGTC_TacSeparation): a malformed cvar must
+   // not turn every TAC on the map into a target.
+   float max_distance = CVAR_GET_FLOAT("mp_tacdistance");
+   if (max_distance < 50.0f)
+      max_distance = 50.0f;
+   if (max_distance > 8000.0f)
+      max_distance = 8000.0f;
+
+   // A TAC must never displace an enemy the existing searches already found.
+   const int higher_priority_enemy = !FNullEnt(pNewEnemy) ? 1 : 0;
+   const int friendlyfire = (CVAR_GET_FLOAT("mp_friendlyfire") != 0.0f) ? 1 : 0;
+
+   edict_t *pTac = NULL;
+   while (!FNullEnt(pTac = UTIL_FindEntityByClassname(pTac, "monster_tac")))
+   {
+      if (pTac->free || pTac == pEdict)
+         continue;
+
+      sgtc_bot_tac_candidate_t candidate;
+      memset(&candidate, 0, sizeof(candidate));
+
+      candidate.bot_team = (int)pEdict->v.team;
+      candidate.tac_team = (int)pTac->v.team;
+      candidate.owned_by_bot = (pTac->v.owner == pEdict) ? 1 : 0;
+      // The TAC clears pev->owner when its 2.7 s arm delay elapses.
+      candidate.armed = (pTac->v.owner == NULL) ? 1 : 0;
+      candidate.alive = IsAlive(pTac) ? 1 : 0;
+      candidate.damageable = ((int)pTac->v.takedamage != (int)DAMAGE_NO) ? 1 : 0;
+      candidate.visible = 0;
+      candidate.distance = (float)(fabs(pTac->v.origin.x - pEdict->v.origin.x) +
+         fabs(pTac->v.origin.y - pEdict->v.origin.y) +
+         fabs(pTac->v.origin.z - pEdict->v.origin.z));
+      candidate.max_distance = max_distance;
+      candidate.higher_priority_enemy = higher_priority_enemy;
+      candidate.friendlyfire = friendlyfire;
+
+      int reason = SGTC_Bots_TacTargetReason(&candidate);
+      if (reason == SGTC_BOT_TAC_REJECT_VISIBILITY)
+      {
+         candidate.visible = FVisibleEnemy(pTac->v.origin, pEdict, pTac) ? 1 : 0;
+         reason = SGTC_Bots_TacTargetReason(&candidate);
+      }
+
+      if (reason != SGTC_BOT_TAC_REJECT_NONE)
+         continue;
+      if (SGTC_Bots_TacTargetDecision(&candidate) != SGTC_BOT_TAC_TARGET_TAC)
+         continue;
+      if (candidate.distance >= nearestdistance)
+         continue;
+
+      nearestdistance = candidate.distance;
+      pNewEnemy = pTac;
+      v_newenemy = pTac->v.origin;
+
+#if DEBUG_ENEMY_SELECT
+      g_debug_enemy_type = "tac";
+#endif
+   }
+}
+
+
+// Mode 2: trace forward 100 units for path-blocking breakable
+static void BotFindEnemySearchPathBreakable(bot_t &pBot, edict_t *&pNewEnemy, Vector &v_newenemy)
+{
+   if (bot_shoot_breakables != 2 || pNewEnemy != NULL)
+      return;
+
+   edict_t *pEdict = pBot.pEdict;
+
+   TraceResult tr;
+   Vector v_src = pEdict->v.origin;
+   Vector v_dest = v_src + UTIL_AnglesToForward(pEdict->v.v_angle) * 100;
+
+   UTIL_TraceHull(v_src, v_dest, dont_ignore_monsters, head_hull, pEdict, &tr);
+
+   if (tr.pHit && !FNullEnt(tr.pHit))
+   {
+      breakable_list_t *pBreakable = UTIL_LookupBreakable(tr.pHit);
+
+      if (pBreakable != NULL &&
+          (int)pBreakable->pEdict->v.takedamage != DAMAGE_NO &&
+          pBreakable->pEdict->v.solid != SOLID_NOT &&
+          pBreakable->pEdict->v.deadflag != DEAD_DEAD &&
+          pBreakable->pEdict->v.health > 0 &&
+          pBreakable->pEdict->v.health <= 8000)
+      {
+         Vector v_origin = UTIL_GetOriginWithExtent(pBot, pBreakable->pEdict);
+
+         if (!v_origin.is_zero_vector() &&
+             FInViewCone( v_origin, pEdict ) &&
+             FVisible( v_origin, pEdict, pBreakable->pEdict ))
+         {
+            pNewEnemy = pBreakable->pEdict;
+            v_newenemy = v_origin;
+
+#if DEBUG_ENEMY_SELECT
+            g_debug_enemy_type = "breakable-path";
+#endif
+         }
+      }
+   }
+}
+
+
+// Sound-based detection via BotFindVisibleSoundEnemy. Returns TRUE = is_sound_enemy
+static qboolean BotFindEnemySearchSound(bot_t &pBot, edict_t *&pNewEnemy, Vector &v_newenemy)
+{
+   if (!FNullEnt(pNewEnemy) || pBot.f_next_find_visible_sound_enemy_time > gpGlobals->time)
+      return FALSE;
+
+   // only run this 5fps
+   pNewEnemy = BotFindVisibleSoundEnemy(pBot);
+   pBot.f_next_find_visible_sound_enemy_time = gpGlobals->time + 0.2f;
+
+   if(!FNullEnt(pNewEnemy))
+   {
+      v_newenemy = pNewEnemy->v.origin;
+
+#if DEBUG_ENEMY_SELECT
+      g_debug_enemy_type = "sound-enemy";
+#endif
+
+      return TRUE;
+   }
+
+   return FALSE;
+}
+
+
+//
+void BotFindEnemy( bot_t &pBot )
+{
+#if DEBUG_ENEMY_SELECT
+   g_debug_enemy_type = "";
+#endif
+
+   edict_t *pEdict = pBot.pEdict;
+
+   if (BotFindEnemyCheckDontShoot(pBot))
+      return;
+
+   if (BotFindEnemyMaintainCurrent(pBot))
+      return;
+
+   edict_t *pNewEnemy = NULL;
+   Vector v_newenemy = Vector(0,0,0);
+   float nearestdistance = 99999;
+
+   BotFindEnemySearchBreakables(pBot, pNewEnemy, v_newenemy, nearestdistance);
+   BotFindEnemySearchMonsters(pBot, pNewEnemy, v_newenemy, nearestdistance);
+   BotFindEnemySearchPlayers(pBot, pNewEnemy, v_newenemy, nearestdistance);
+   BotFindEnemySearchPathBreakable(pBot, pNewEnemy, v_newenemy);
+
+   qboolean is_sound_enemy = BotFindEnemySearchSound(pBot, pNewEnemy, v_newenemy);
+
+   // TACs are the lowest-priority candidate: a player, monster, breakable or
+   // heard enemy always wins, and this call is a no-op for the selection when
+   // one of them is already set.
+   BotFindEnemySearchTacs(pBot, pNewEnemy, v_newenemy, nearestdistance);
+
+   //
+   if (!FNullEnt(pNewEnemy))
+   {
+      // face the enemy
+      Vector v_enemy = v_newenemy - pEdict->v.origin;
+      Vector bot_angles = UTIL_VecToAngles( v_enemy );
+
+      pEdict->v.ideal_yaw = bot_angles.y;
+
+      BotFixIdealYaw(pEdict);
+
+      // keep track of when we last saw an enemy
+      pBot.f_bot_see_enemy_time = gpGlobals->time;
+      pBot.v_bot_see_enemy_origin = UTIL_GetOrigin(pNewEnemy);
+
+      BotResetReactionTime(pBot, is_sound_enemy);
+
+#if DEBUG_ENEMY_SELECT
+      if(pBot.waypoint_goal != -1)
+         UTIL_ConsolePrintf("[%s] Found enemy, forget goal: %d -> %d", pBot.name, pBot.waypoint_goal, -1);
+
+      UTIL_ConsolePrintf("[%s] Found enemy, type: %s", pBot.name, g_debug_enemy_type);
+#endif
+
+      BotTrace(pBot, "efound: %s d=%.0f h=%.0f a=%.0f",
+         STRING(pNewEnemy->v.netname), nearestdistance, pEdict->v.health, pEdict->v.armorvalue);
+
+      // clear goal waypoint
+      pBot.waypoint_goal = -1;
+      pBot.wpt_goal_type = WPT_GOAL_ENEMY;
+   }
+
+   // has the bot NOT seen an ememy for at least 5 seconds (time to reload)?
+   else if ((pBot.f_bot_see_enemy_time > 0) && ((pBot.f_bot_see_enemy_time + 5.0) <= gpGlobals->time))
+   {
+      pBot.f_bot_see_enemy_time = -1;  // so we won't keep reloading
+      pBot.v_bot_see_enemy_origin = Vector(-99999,-99999,-99999);
+
+      pEdict->v.button |= IN_RELOAD;  // press reload button
+   }
+
+   pBot.pBotEnemy = pNewEnemy;
+}
+
+
+//
+static qboolean HaveRoomForThrow(bot_t & pBot)
+{
+   edict_t *pEdict = pBot.pEdict;
+   qboolean feet_ok, center_ok, head_ok;
+
+   // trace from feet to feet and head to head
+   TraceResult tr;
+   Vector v_start, v_end;
+
+   //feet
+   v_start = pEdict->v.origin - pEdict->v.view_ofs;
+   v_end = pBot.pBotEnemy->v.origin - pBot.pBotEnemy->v.view_ofs;
+
+   UTIL_TraceMove(v_start, v_end, ignore_monsters, pEdict, &tr);
+
+   feet_ok = (tr.flFraction > 0.999999f || tr.pHit == pBot.pBotEnemy);
+
+   //center
+   v_start = pEdict->v.origin;
+   v_end = pBot.pBotEnemy->v.origin;
+
+   UTIL_TraceMove(v_start, v_end, ignore_monsters, pEdict, &tr);
+
+   center_ok = (tr.flFraction > 0.999999f || tr.pHit == pBot.pBotEnemy);
+
+   if(center_ok && !feet_ok)
+   {
+      //head
+      v_start = pEdict->v.origin + pEdict->v.view_ofs;
+      v_end = pBot.pBotEnemy->v.origin + pBot.pBotEnemy->v.view_ofs;
+
+      UTIL_TraceMove(v_start, v_end, ignore_monsters, pEdict, &tr);
+
+      head_ok = (tr.flFraction > 0.999999f || tr.pHit == pBot.pBotEnemy);
+   }
+   else
+      head_ok = FALSE;
+
+   return((center_ok && feet_ok) || (center_ok && head_ok));
+}
+
+
+//
+static qboolean CheckWeaponFireConditions(bot_t & pBot, const bot_weapon_select_t &select, qboolean &use_primary, qboolean &use_secondary)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   //
+   if ((select.type & WEAPON_MELEE) == WEAPON_MELEE)
+   {
+      // check if bot needs to duck down to hit enemy...
+      if (fabs(pBot.pBotEnemy->v.origin.z - pEdict->v.origin.z) > 16 &&
+          (pBot.pBotEnemy->v.origin - pEdict->v.origin).Length() < 64)
+         pBot.f_duck_time = gpGlobals->time + 1.0;
+   }
+   else if((select.type & WEAPON_THROW) == WEAPON_THROW && !HaveRoomForThrow(pBot))
+   {
+      return FALSE;
+   }
+   else if (select.iId == VALVE_WEAPON_MP5 && use_secondary)
+   {
+      qboolean ok = FALSE;
+
+      if(HaveRoomForThrow(pBot))
+      {
+         // setup bot aim angle by distance and height to enemy
+         Vector v_enemy = pBot.pBotEnemy->v.origin - (pEdict->v.origin + GetGunPosition(pEdict));
+
+         float angle = ValveWeaponMP5_GetBestLaunchAngleByDistanceAndHeight(v_enemy.Length(), v_enemy.z);
+         if(angle >= -89.0 && angle <= 89.0)
+         {
+            pBot.b_set_special_shoot_angle = TRUE;
+            pBot.f_special_shoot_angle = angle;
+            ok = TRUE;
+         }
+      }
+
+      if(!ok)
+         use_primary = !(use_secondary = FALSE);
+   }
+
+   return TRUE;
+}
+
+
+// Setup special weapon behaviors (zoom, eagle aimspot, M249 duck)
+static void BotFireSelectedWeaponSetupSpecial(bot_t &pBot, const bot_weapon_select_t &select, qboolean &use_primary, qboolean &use_secondary)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // use secondary once to enable zoom
+   if(use_primary && (select.type & WEAPON_FIRE_ZOOM) == WEAPON_FIRE_ZOOM && pEdict->v.fov == 0)
+      use_primary = !(use_secondary = TRUE);
+
+   // use secondary once to enable aimspot
+   if(use_primary && select.iId == GEARBOX_WEAPON_EAGLE && pBot.eagle_secondary_state == 0)
+   {
+      use_primary = !(use_secondary = TRUE);
+      pBot.eagle_secondary_state = 1;
+   }
+
+   //duck for better aim
+   if(select.iId == GEARBOX_WEAPON_M249)
+   {
+      pBot.f_duck_time = gpGlobals->time + 0.5f;
+      pEdict->v.button |= IN_DUCK;
+   }
+}
+
+
+// Set shoot time for primary or secondary fire (charge, hold, or delay)
+static void BotFireSelectedWeaponSetShootTime(bot_t &pBot, const bot_weapon_select_t &select, const bot_fire_delay_t &delay, qboolean is_primary)
+{
+   edict_t *pEdict = pBot.pEdict;
+   const int iId = select.iId;
+
+   pEdict->v.button |= is_primary ? IN_ATTACK : IN_ATTACK2;
+
+   if (is_primary ? select.primary_fire_charge : select.secondary_fire_charge)
+   {
+      pBot.charging_weapon_id = iId;
+
+      // release fire after the appropriate delay...
+      if (is_primary)
+         pBot.f_primary_charging = gpGlobals->time + select.primary_charge_delay;
+      else
+         pBot.f_secondary_charging = gpGlobals->time + select.secondary_charge_delay;
+
+      pBot.f_shoot_time = gpGlobals->time;  // keep charging
+   }
+   else
+   {
+      // set next time to shoot
+      if (is_primary ? select.primary_fire_hold : select.secondary_fire_hold)
+         pBot.f_shoot_time = gpGlobals->time;  // don't let button up
+      else
+      {
+         int skill = pBot.bot_skill;
+         float base_delay, min_delay, max_delay;
+
+         if (is_primary)
+         {
+            base_delay = delay.primary_base_delay;
+            min_delay = delay.primary_min_delay[skill];
+            max_delay = delay.primary_max_delay[skill];
+         }
+         else
+         {
+            base_delay = delay.secondary_base_delay;
+            min_delay = delay.secondary_min_delay[skill];
+            max_delay = delay.secondary_max_delay[skill];
+         }
+
+         if(min_delay == 0 && max_delay == 0)
+            pBot.f_shoot_time = gpGlobals->time + base_delay;
+         else
+            pBot.f_shoot_time = gpGlobals->time + base_delay + RANDOM_FLOAT2(min_delay, max_delay);
+      }
+
+      // after throwing satchel, set up detonation tracking and switch to better weapon
+      if (is_primary && iId == VALVE_WEAPON_SATCHEL)
+      {
+         pBot.f_satchel_detonate_time = gpGlobals->time + 30.0;  // 30s force-detonate deadline
+         pBot.f_satchel_check_time = gpGlobals->time + 2.0;      // first check after throw settles
+         pBot.current_weapon_index = -1;  // force re-eval -> switch to better weapon
+      }
+   }
+}
+
+
+//
+static qboolean BotFireSelectedWeapon(bot_t & pBot, const bot_weapon_select_t &select, const bot_fire_delay_t &delay, qboolean use_primary, qboolean use_secondary)
+{
+   // Select primary or secondary based on bot skill and random percent
+   if(use_primary && use_secondary)
+   {
+      BotSelectAttack(pBot, select, use_primary, use_secondary);
+   }
+
+   // Check if weapon can be fired and setup bot for firing this weapon
+   if(!CheckWeaponFireConditions(pBot, select, use_primary, use_secondary))
+      return FALSE;
+
+   BotFireSelectedWeaponSetupSpecial(pBot, select, use_primary, use_secondary);
+   BotFireSelectedWeaponSetShootTime(pBot, select, delay, use_primary);
+
+   return TRUE;  // weapon was fired
+}
+
+//
+static qboolean TrySelectWeapon(bot_t &pBot, const int select_index, const bot_weapon_select_t &select, const bot_fire_delay_t &delay)
+{
+   // SGTC weapon-selection instrumentation (sgtc_bot_weaponlog, off by default).
+   // Finds whether churn comes from a normal choice, the fallback path or the
+   // delay.iId != select.iId mismatch.  CVAR_GET_POINTER first so we never poke
+   // a non-existent cvar before DLL registration.
+   cvar_t *pWpnLog = CVAR_GET_POINTER( "sgtc_bot_weaponlog" );
+   if( pWpnLog && pWpnLog->value > 0.0f )
+   {
+      const char *pszBotName = ( pBot.pEdict && pBot.pEdict->v.netname ) ? STRING( pBot.pEdict->v.netname ) : "?";
+      ALERT( at_console, "[wsel] bot=%s cur_iId=%d want=%s want_iId=%d delay_iId=%d match=%d t=%.2f\n",
+         pszBotName, (int)pBot.current_weapon.iId, select.weapon_name ? select.weapon_name : "?",
+         (int)select.iId, (int)delay.iId, ( delay.iId == select.iId ) ? 1 : 0, gpGlobals->time );
+   }
+
+   // select this weapon if it isn't already selected
+   if (pBot.current_weapon.iId != select.iId)
+   {
+      UTIL_SelectItem(pBot.pEdict, select.weapon_name);
+      BotTrace(pBot, "wsel: %s", select.weapon_name);
+   }
+
+   if (delay.iId != select.iId)
+   {
+      pBot.current_weapon_index = -1;
+
+      return FALSE;
+   }
+
+   pBot.current_weapon_index = select_index;
+
+   // SGTC: weapon-choice hysteresis.  jk_botti's per-skill change rate can be
+   // well under a second, which reads as constant switching to humans.  Keep
+   // the chosen weapon for at least 1.6 s unless it becomes unusable (the
+   // reuse/choose paths above already force a switch when the current weapon
+   // is dry or out of its valid range).
+   {
+      float flDwell = RANDOM_FLOAT2(skill_settings[pBot.bot_skill].weaponchange_rate_min,
+                                    skill_settings[pBot.bot_skill].weaponchange_rate_max);
+      if( flDwell < 1.6f )
+         flDwell = 1.6f;
+      pBot.f_weaponchange_time = gpGlobals->time + flDwell;
+   }
+
+   return TRUE;
+}
+
+
+// Reset weapon if can't use underwater
+static void BotFireWeaponHandleUnderwater(bot_t &pBot, const bot_weapon_select_t *pSelect)
+{
+   if(pBot.b_in_water)
+   {
+      int select_index = pBot.current_weapon_index;
+
+      if(select_index < 0 || !pSelect[select_index].can_use_underwater)
+      {
+         pBot.current_weapon_index = -1;
+         pBot.f_primary_charging = -1;
+         pBot.f_secondary_charging = -1;
+      }
+   }
+}
+
+
+// Handle charging weapon release/continue for primary or secondary fire
+static qboolean BotFireWeaponHandleCharging(bot_t &pBot, const bot_weapon_select_t *pSelect, const bot_fire_delay_t *pDelay, qboolean is_primary)
+{
+   float &f_charging = is_primary ? pBot.f_primary_charging : pBot.f_secondary_charging;
+
+   if (f_charging <= 0)
+      return FALSE;
+
+   int iId = pBot.charging_weapon_id;
+
+   // is it time to fire the charged weapon?
+   if (f_charging <= gpGlobals->time)
+   {
+      // we DON'T set pEdict->v.button here to release the
+      // fire button which will fire the charged weapon
+
+      f_charging = -1;  // -1 means not charging
+
+      // find the correct fire delay for this weapon
+      int select_index = 0;
+
+      while ((pSelect[select_index].iId) &&
+             (pSelect[select_index].iId != iId))
+         select_index++;
+
+      // set next time to shoot
+      int skill = pBot.bot_skill;
+      float base_delay, min_delay, max_delay;
+
+      if (is_primary)
+      {
+         base_delay = pDelay[select_index].primary_base_delay;
+         min_delay = pDelay[select_index].primary_min_delay[skill];
+         max_delay = pDelay[select_index].primary_max_delay[skill];
+      }
+      else
+      {
+         base_delay = pDelay[select_index].secondary_base_delay;
+         min_delay = pDelay[select_index].secondary_min_delay[skill];
+         max_delay = pDelay[select_index].secondary_max_delay[skill];
+      }
+
+      pBot.f_shoot_time = gpGlobals->time + base_delay +
+         RANDOM_FLOAT2(min_delay, max_delay);
+   }
+   else
+   {
+      pBot.pEdict->v.button |= is_primary ? IN_ATTACK : IN_ATTACK2;  // charge the weapon
+      pBot.f_shoot_time = gpGlobals->time;  // keep charging
+   }
+
+   return TRUE;
+}
+
+
+// Try reusing current weapon. Returns: 1=fired, 0=error, -1=fall through
+static int BotFireWeaponTryReuseCurrent(bot_t &pBot, const bot_weapon_select_t *pSelect, const bot_fire_delay_t *pDelay, float distance, float height, int weapon_choice)
+{
+   if(pBot.current_weapon_index < 0 || pSelect[pBot.current_weapon_index].avoid_this_gun)
+      return -1;
+
+   int select_index = pBot.current_weapon_index;
+
+   qboolean use_primary = FALSE;
+   qboolean use_secondary = FALSE;
+
+   // Check if we can use this weapon
+   if ((weapon_choice == pSelect[select_index].iId || weapon_choice == 0) ||
+       (IsValidWeaponChoose(pBot, pSelect[select_index]) &&
+        BotCanUseWeapon(pBot, pSelect[select_index]) &&
+        IsValidToFireAtTheMoment(pBot, pSelect[select_index])))
+   {
+      int better_index = -1;
+
+      if(weapon_choice == 0)
+      {
+         // Check if we REALLY want to change to other weapon (aka current gun IS shit)
+         better_index = BotGetBetterWeaponChoice(pBot, pSelect[select_index], pSelect, distance, height, &use_primary, &use_secondary);
+         if(better_index > -1)
+            select_index = better_index;
+      }
+
+      if(better_index == -1)
+      {
+         // Check if this weapon is ok for current contitions
+         use_primary = IsValidPrimaryAttack(pBot, pSelect[select_index], distance, height, weapon_choice != 0);
+         use_secondary = IsValidSecondaryAttack(pBot, pSelect[select_index], distance, height, weapon_choice != 0);
+      }
+
+      // check if bot has enough skill for attack
+      if(use_primary && !BotSkilledEnoughForPrimaryAttack(pBot, pSelect[select_index]))
+         use_primary = FALSE;
+      if(use_secondary && !BotSkilledEnoughForSecondaryAttack(pBot, pSelect[select_index]))
+         use_secondary = FALSE;
+
+      if(use_primary || use_secondary)
+      {
+         if(!TrySelectWeapon(pBot, select_index, pSelect[select_index], pDelay[select_index]))
+            return 0; //error
+
+         return BotFireSelectedWeapon(pBot, pSelect[select_index], pDelay[select_index], use_primary, use_secondary) ? 1 : 0;
+      }
+   }
+
+   return -1;
+}
+
+
+static void BotFireWeaponChooseFromAvailable_BuildList(bot_t &pBot, const bot_weapon_select_t *pSelect, float distance, float height, int weapon_choice, select_list_t *pool, select_list_t *&tmp_select_list, int &total_percent)
+{
+   //
+   // 1. check which weapons are available and with which percents
+   //
+   int pool_count = 0;
+   select_list_t *tail = NULL;
+
+   // loop through all the weapons until terminator is found...
+   int select_index = -1;
+   while (pSelect[++select_index].iId)
+   {
+      // Check if we can use this weapon
+      if(!(weapon_choice == pSelect[select_index].iId || weapon_choice == 0))
+         continue;
+
+      if(pSelect[select_index].avoid_this_gun)
+         continue;
+
+      if(!IsValidWeaponChoose(pBot, pSelect[select_index]) ||
+         !BotCanUseWeapon(pBot, pSelect[select_index]) ||
+         !IsValidToFireAtTheMoment(pBot, pSelect[select_index]))
+         continue;
+
+      // Check if this weapon is ok for current contitions
+      qboolean use_primary = IsValidPrimaryAttack(pBot, pSelect[select_index], distance, height, weapon_choice != 0);
+      qboolean use_secondary = IsValidSecondaryAttack(pBot, pSelect[select_index], distance, height, weapon_choice != 0);
+
+      // check if bot has enough skill for attack
+      if(use_primary && !BotSkilledEnoughForPrimaryAttack(pBot, pSelect[select_index]))
+         use_primary = FALSE;
+      if(use_secondary && !BotSkilledEnoughForSecondaryAttack(pBot, pSelect[select_index]))
+         use_secondary = FALSE;
+
+      if(!use_primary && !use_secondary)
+         continue;
+
+      // New code, collect weapon percents to linked list
+      select_list_t *next = &pool[pool_count++];
+      next->next = NULL;
+
+      // fill data
+      next->use_primary = use_primary;
+      next->use_secondary = use_secondary;
+      next->percent_start = total_percent;
+      next->percent_end = total_percent + pSelect[select_index].use_percent;
+      next->select_index = select_index;
+
+      //UTIL_ConsolePrintf("add: %d .. %d [%s]", total_percent, total_percent + pSelect[select_index].use_percent, pSelect[select_index].weapon_name);
+
+      total_percent += pSelect[select_index].use_percent;
+
+      // add to end of linked list
+      if(tail)
+         tail->next = next;
+      else
+         tmp_select_list = next;
+      tail = next;
+   }
+}
+
+static qboolean BotFireWeaponChooseFromAvailable_RandomSelect(bot_t &pBot, const bot_weapon_select_t *pSelect, const bot_fire_delay_t *pDelay, select_list_t *tmp_select_list, int total_percent)
+{
+   //
+   // 2. Choose weapon
+   //
+   if(total_percent > 0)
+   {
+      // random choose
+      int choose = RANDOM_LONG2(0, total_percent-1);
+
+      // find choose
+      select_list_t * next = tmp_select_list;
+      while(next)
+      {
+         if(choose < next->percent_start || choose >= next->percent_end)
+         {
+            next = next->next;
+            continue;
+         }
+
+         // this is our random choosed weapon!
+         int select_index = next->select_index;
+
+         //UTIL_ConsolePrintf("choose: %d [%s]", choose, pSelect[select_index].weapon_name);
+
+         if(!TrySelectWeapon(pBot, select_index, pSelect[select_index], pDelay[select_index]))
+            return FALSE; //error
+
+         return(BotFireSelectedWeapon(pBot, pSelect[select_index], pDelay[select_index], next->use_primary, next->use_secondary));
+      }
+   }
+
+   return FALSE;
+}
+
+// Build alloca linked list of available weapons and randomly select one by percentage
+static qboolean BotFireWeaponChooseFromAvailable(bot_t &pBot, const bot_weapon_select_t *pSelect, const bot_fire_delay_t *pDelay, float distance, float height, int weapon_choice)
+{
+   int total_percent = 0;
+   select_list_t *tmp_select_list = NULL;
+   select_list_t pool[MAX_WEAPONS];
+
+   BotFireWeaponChooseFromAvailable_BuildList(pBot, pSelect, distance, height, weapon_choice, pool, tmp_select_list, total_percent);
+
+   return BotFireWeaponChooseFromAvailable_RandomSelect(pBot, pSelect, pDelay, tmp_select_list, total_percent);
+}
+
+
+static void BotFireWeaponFallbackSearch_ScanWeapons(bot_t &pBot, const bot_weapon_select_t *pSelect, float distance, float height, int weapon_choice, int &min_index, int &min_skill, qboolean &min_use_primary, qboolean &min_use_secondary, int &avoid_index, int &avoid_skill, qboolean &avoid_use_primary, qboolean &avoid_use_secondary)
+{
+   int select_index = -1;
+   while (pSelect[++select_index].iId)
+   {
+      // Check if we can use this weapon
+      if(!(weapon_choice == pSelect[select_index].iId || weapon_choice == 0))
+         continue;
+
+      if(!IsValidWeaponChoose(pBot, pSelect[select_index]) ||
+         !BotIsCarryingWeapon(pBot, pSelect[select_index].iId))
+         continue;
+
+      // Underwater: only use avoidable weapon if can be used underwater
+      if(pBot.b_in_water)
+      {
+         if(!pSelect[select_index].can_use_underwater)
+            continue;
+      }
+
+      // Check if this weapon is ok for current contitions
+      qboolean use_primary = IsValidPrimaryAttack(pBot, pSelect[select_index], distance, height, TRUE);
+      qboolean use_secondary = IsValidSecondaryAttack(pBot, pSelect[select_index], distance, height, TRUE);
+      if(use_primary || use_secondary)
+      {
+         if(pSelect[select_index].avoid_this_gun)
+         {
+            if(((use_primary && pSelect[select_index].primary_skill_level < avoid_skill) ||
+               (use_secondary && pSelect[select_index].secondary_skill_level < avoid_skill)) &&
+               BotCanUseWeapon(pBot, pSelect[select_index]))
+            {
+               avoid_skill = MAX(pSelect[select_index].primary_skill_level, pSelect[select_index].secondary_skill_level);
+               avoid_index = select_index;
+               avoid_use_primary = use_primary;
+               avoid_use_secondary = use_secondary;
+            }
+         }
+         else if((use_primary && pSelect[select_index].primary_skill_level > min_skill) ||
+            (use_secondary && pSelect[select_index].secondary_skill_level > min_skill))
+         {
+            min_skill = MAX(pSelect[select_index].primary_skill_level, pSelect[select_index].secondary_skill_level);
+            min_index = select_index;
+            min_use_primary = use_primary;
+            min_use_secondary = use_secondary;
+         }
+      }
+   }
+}
+
+static void BotFireWeaponFallbackSearch_SelectAttackType(bot_t &pBot, const bot_weapon_select_t &pWeapon, qboolean &use_primary, qboolean &use_secondary, qboolean is_avoid_weapon)
+{
+   if(is_avoid_weapon)
+   {
+      // check if bot has enough skill for attack
+      if(use_primary && !BotSkilledEnoughForPrimaryAttack(pBot, pWeapon))
+         use_primary = FALSE;
+      if(use_secondary && !BotSkilledEnoughForSecondaryAttack(pBot, pWeapon))
+         use_secondary = FALSE;
+   }
+   else
+   {
+      if(use_primary && use_secondary)
+      {
+         //use least skilled
+         if(pWeapon.primary_skill_level < pWeapon.secondary_skill_level)
+            use_primary = FALSE;
+         else if(pWeapon.primary_skill_level > pWeapon.secondary_skill_level)
+            use_secondary = FALSE;
+      }
+   }
+}
+
+static qboolean BotFireWeaponFallbackSearch_TryFireWeapon(bot_t &pBot, const bot_weapon_select_t *pSelect, const bot_fire_delay_t *pDelay, int select_index, qboolean use_primary, qboolean use_secondary)
+{
+   if(!TrySelectWeapon(pBot, select_index, pSelect[select_index], pDelay[select_index]))
+      return FALSE; //error
+
+   return(BotFireSelectedWeapon(pBot, pSelect[select_index], pDelay[select_index], use_primary, use_secondary));
+}
+
+// Search for highest-skill non-avoided weapon, then best avoidable as last resort
+static qboolean BotFireWeaponFallbackSearch(bot_t &pBot, const bot_weapon_select_t *pSelect, const bot_fire_delay_t *pDelay, float distance, float height, int weapon_choice)
+{
+   // AT THIS POINT:
+   // We didn't find good weapon, now try find least skilled weapon that bot has, but avoid avoidable weapons
+   // Also get best avoidable weapon bot can use
+   int min_index = -1;
+   int min_skill = -1;
+   qboolean min_use_primary = FALSE;
+   qboolean min_use_secondary = FALSE;
+
+   int avoid_index = -1;
+   int avoid_skill = 6;
+   qboolean avoid_use_primary = FALSE;
+   qboolean avoid_use_secondary = FALSE;
+
+   BotFireWeaponFallbackSearch_ScanWeapons(pBot, pSelect, distance, height, weapon_choice, min_index, min_skill, min_use_primary, min_use_secondary, avoid_index, avoid_skill, avoid_use_primary, avoid_use_secondary);
+
+   if(min_index > -1 && min_skill > -1)
+   {
+      BotFireWeaponFallbackSearch_SelectAttackType(pBot, pSelect[min_index], min_use_primary, min_use_secondary, FALSE);
+      return BotFireWeaponFallbackSearch_TryFireWeapon(pBot, pSelect, pDelay, min_index, min_use_primary, min_use_secondary);
+   }
+
+   if(avoid_index > -1 && avoid_skill < 6)
+   {
+      BotFireWeaponFallbackSearch_SelectAttackType(pBot, pSelect[avoid_index], avoid_use_primary, avoid_use_secondary, TRUE);
+      return BotFireWeaponFallbackSearch_TryFireWeapon(pBot, pSelect, pDelay, avoid_index, avoid_use_primary, avoid_use_secondary);
+   }
+
+   // didn't have any available weapons or ammo, return FALSE
+   return FALSE;
+}
+
+
+// specifing a weapon_choice allows you to choose the weapon the bot will
+// use (assuming enough ammo exists for that weapon)
+// BotFireWeapon will return TRUE if weapon was fired, FALSE otherwise
+static qboolean BotFireWeapon(const Vector & v_enemy, bot_t &pBot, int weapon_choice)
+{
+   if (FNullEnt(pBot.pBotEnemy))
+     return FALSE;
+
+   float distance = v_enemy.Length();  // how far away is the enemy?
+   float height = v_enemy.z; // how high is enemy?
+
+   const bot_weapon_select_t *pSelect = &weapon_select[0];
+   const bot_fire_delay_t *pDelay = &fire_delay[0];
+
+   BotFireWeaponHandleUnderwater(pBot, pSelect);
+
+   // are we charging primary or secondary fire?
+   if (BotFireWeaponHandleCharging(pBot, pSelect, pDelay, TRUE))
+      return TRUE;
+   if (BotFireWeaponHandleCharging(pBot, pSelect, pDelay, FALSE))
+      return TRUE;
+
+   // check if we can reuse currently active weapon
+   int reuse = BotFireWeaponTryReuseCurrent(pBot, pSelect, pDelay, distance, height, weapon_choice);
+   if(reuse >= 0)
+      return reuse ? TRUE : FALSE;
+
+   // don't change weapon too fast
+   if(pBot.f_weaponchange_time >= gpGlobals->time && pBot.current_weapon_index >= 0 && weapon_choice == 0)
+   {
+      // keep tracking the enemy even if we cannot hit right now
+      if(weapon_select[pBot.current_weapon_index].type & WEAPON_MELEE)
+         return TRUE;
+
+      return FALSE;
+   }
+
+   // SGTC: no weapon switching mid-attack / while a shot is queued.  The reuse
+   // path above already failed, so just hold the current weapon for the short
+   // firing window instead of swapping under the shot.
+   if( weapon_choice == 0 && pBot.current_weapon_index >= 0 &&
+       pBot.f_shoot_time > gpGlobals->time )
+      return TRUE;
+
+   pBot.current_weapon_index = -1; // forget current weapon
+
+   if(BotFireWeaponChooseFromAvailable(pBot, pSelect, pDelay, distance, height, weapon_choice))
+      return TRUE;
+
+   return BotFireWeaponFallbackSearch(pBot, pSelect, pDelay, distance, height, weapon_choice);
+}
+
+
+// Choose aim point: feet (WEAPON_FIRE_AT_FEET with trace), head (FCanShootInHead), or center
+static Vector BotShootAtEnemyDetermineAimPoint(bot_t &pBot, const Vector &v_predicted_pos)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // do we need to aim at the feet?
+   if (pBot.current_weapon_index != -1 && (weapon_select[pBot.current_weapon_index].type & WEAPON_FIRE_AT_FEET) == WEAPON_FIRE_AT_FEET)
+   {
+      Vector v_src, v_dest;
+      TraceResult tr;
+
+      v_src = pEdict->v.origin + pEdict->v.view_ofs;  // bot's eyes
+      v_dest = pBot.pBotEnemy->v.origin - pBot.pBotEnemy->v.view_ofs;
+
+      UTIL_TraceLine( v_src, v_dest, dont_ignore_monsters,
+                      pEdict->v.pContainingEntity, &tr);
+
+      // can the bot see the enemies feet?
+
+      if ((tr.flFraction > 0.999999f) ||
+          ((tr.flFraction >= 0.95f) &&
+           FIsClassname("player", tr.pHit)))
+      {
+         // aim at the feet for RPG type weapons
+         return v_predicted_pos - pBot.pBotEnemy->v.view_ofs;
+      }
+      else
+      {
+         Vector v_aimpos = v_predicted_pos;
+         if(FCanShootInHead(pEdict, pBot.pBotEnemy, v_predicted_pos))
+            v_aimpos += pBot.pBotEnemy->v.view_ofs;// aim for the head...
+         return v_aimpos;
+      }
+   }
+   else
+   {
+      Vector v_aimpos = v_predicted_pos;
+      if(FCanShootInHead(pEdict, pBot.pBotEnemy, v_predicted_pos))
+         v_aimpos += pBot.pBotEnemy->v.view_ofs;// aim for the head...
+      return v_aimpos;
+   }
+}
+
+
+// Check shoot time, visibility, shoot cone; call BotFireWeapon; handle failure
+static void BotShootAtEnemyExecuteFire(bot_t &pBot, const Vector &v_enemy_aimpos, const Vector &v_enemy)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // is it time to shoot yet?
+   if (pBot.f_shoot_time <= gpGlobals->time)
+   {
+      // only fire if aiming target circle with specific max radius
+      if(FVisibleEnemy(v_enemy_aimpos, pEdict, pBot.pBotEnemy))
+      {
+         float shootcone_diameter = skill_settings[pBot.bot_skill].shootcone_diameter;
+         float shootcone_minangle = skill_settings[pBot.bot_skill].shootcone_minangle;
+
+         // check if it is possible to hit target
+         if(FInShootCone(v_enemy_aimpos, pEdict, v_enemy.Length(), shootcone_diameter, shootcone_minangle))
+         {
+            // select the best weapon to use at this distance and fire...
+            if(!BotFireWeapon(v_enemy, pBot, 0))
+            {
+               char no_weapon_reason[128];
+               if (bot_trace_level > 0)
+               {
+                  char ammo[96];
+                  BotTraceAmmoSummary(pBot, ammo, sizeof(ammo));
+                  safevoid_snprintf(no_weapon_reason, sizeof(no_weapon_reason),
+                     "nowpn h=%.0f a=%.0f d=%.0f [%s]",
+                     pEdict->v.health, pEdict->v.armorvalue, v_enemy.Length(), ammo);
+               }
+               else
+                  no_weapon_reason[0] = '\0';
+               BotRemoveEnemy(pBot, TRUE, no_weapon_reason);
+
+               // level look
+               pEdict->v.idealpitch = 0;
+            }
+         }
+      }
+      else
+      {
+         // not visible.. reset reaction times
+         BotResetReactionTime(pBot);
+      }
+   }
+}
+
+
+void BotShootAtEnemy( bot_t &pBot )
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   if (pBot.f_reaction_target_time > gpGlobals->time)
+      return;
+
+   Vector v_predicted_pos = UTIL_AdjustOriginWithExtent(pBot, GetPredictedPlayerPosition(pBot, pBot.pBotEnemy), pBot.pBotEnemy);
+
+   Vector v_enemy_aimpos = BotShootAtEnemyDetermineAimPoint(pBot, v_predicted_pos);
+
+   // Enemy not visible?
+   if(!pBot.b_combat_longjump && !FVisibleEnemy(v_enemy_aimpos, pEdict, pBot.pBotEnemy))
+   {
+      char vis_reason[80];
+      BotTraceFormat(vis_reason, sizeof(vis_reason),
+         "nvis/blk p=%.0f,%.0f,%.0f e=%.0f,%.0f,%.0f",
+         pEdict->v.origin.x, pEdict->v.origin.y, pEdict->v.origin.z,
+         pBot.pBotEnemy->v.origin.x, pBot.pBotEnemy->v.origin.y, pBot.pBotEnemy->v.origin.z);
+      BotRemoveEnemy(pBot, TRUE, vis_reason);
+
+      return;
+   }
+
+   Vector v_enemy = v_enemy_aimpos - GetGunPosition(pEdict);
+
+   Vector enemy_angle = UTIL_VecToAngles( v_enemy );
+
+   if (enemy_angle.x > 180)
+      enemy_angle.x -=360;
+
+   if (enemy_angle.y > 180)
+      enemy_angle.y -=360;
+
+   // adjust the view angle pitch to aim correctly
+   enemy_angle.x = -enemy_angle.x;
+
+   if(!pBot.b_combat_longjump)
+   {
+      pEdict->v.idealpitch = enemy_angle.x;
+      BotFixIdealPitch(pEdict);
+
+      pEdict->v.ideal_yaw = enemy_angle.y;
+      BotFixIdealYaw(pEdict);
+   }
+
+   Vector v_enemy_xy = v_enemy;
+   v_enemy_xy.z = 0;  // ignore z component (up & down)
+
+   float f_xy_distance = v_enemy_xy.Length();  // how far away is the enemy scum?
+
+   if (f_xy_distance > 20)      // run if distance to enemy is far
+      pBot.f_move_speed = pBot.f_max_speed;
+   else                     // don't move too fast if close enough
+   {
+      pBot.b_not_maxspeed = TRUE;
+      pBot.f_move_speed = pBot.f_max_speed/2;
+   }
+
+   BotShootAtEnemyExecuteFire(pBot, v_enemy_aimpos, v_enemy);
+}
+
+
+// Check if any enemy is near bot's deployed satchels and bot is at safe distance
+static qboolean BotShouldDetonateSatchel(bot_t &pBot)
+{
+   edict_t *pEdict = pBot.pEdict;
+   qboolean found_satchel = FALSE;
+
+   edict_t *pSatchel = NULL;
+   while ((pSatchel = UTIL_FindEntityByClassname(pSatchel, "monster_satchel")) != NULL)
+   {
+      if (pSatchel->v.owner != pEdict)
+         continue;
+
+      found_satchel = TRUE;
+      Vector satchel_origin = pSatchel->v.origin;
+
+      // Self-damage check: don't detonate if bot is within blast radius + margin
+      if ((satchel_origin - pEdict->v.origin).Length() < 200.0)
+         continue;
+
+      // Check for enemy players near the satchel
+      if (BotFindEnemyNearestToPoint(pBot, satchel_origin, 300.0, NULL) != NULL)
+         return TRUE;
+   }
+
+   // No satchels found - they were detonated or removed
+   if (!found_satchel)
+   {
+      pBot.f_satchel_detonate_time = 0;
+      pBot.b_satchel_detonating = FALSE;
+   }
+
+   return FALSE;
+}
+
+
+static qboolean BotDetonateSatchel_HandleDetonating(bot_t &pBot)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // Phase 2: already committed to detonation, just waiting for weapon switch
+   if (pBot.current_weapon.iId == VALVE_WEAPON_SATCHEL)
+   {
+      pEdict->v.button |= IN_ATTACK;     // detonate (primary when m_chargeReady==1)
+      pBot.f_satchel_detonate_time = 0;
+      pBot.b_satchel_detonating = FALSE;
+      pBot.f_shoot_time = gpGlobals->time + 0.5;
+      pBot.current_weapon_index = -1;
+   }
+   else
+   {
+      UTIL_SelectItem(pEdict, "weapon_satchel");  // retry select
+      // Keep normal firing suppressed until the satchel switch completes
+      pBot.f_shoot_time = gpGlobals->time + 0.3;
+   }
+   return TRUE;
+}
+
+static qboolean BotDetonateSatchel_CheckAndCommit(bot_t &pBot)
+{
+   edict_t *pEdict = pBot.pEdict;
+
+   // Phase 1: decide whether to detonate
+   qboolean should_detonate = FALSE;
+
+   // Throttled proximity check (every 0.5s), also used when timeout elapses
+   qboolean timeout_reached = (pBot.f_satchel_detonate_time <= gpGlobals->time);
+   if (timeout_reached || pBot.f_satchel_check_time <= gpGlobals->time)
+   {
+      pBot.f_satchel_check_time = gpGlobals->time + 0.5;
+      should_detonate = BotShouldDetonateSatchel(pBot);
+
+      // If timeout but still unsafe (too close), extend deadline
+      if (timeout_reached && !should_detonate)
+         pBot.f_satchel_detonate_time = gpGlobals->time + 1.0;
+   }
+
+   if (!should_detonate)
+      return FALSE;
+
+   // Commit to detonation
+   if (pBot.current_weapon.iId == VALVE_WEAPON_SATCHEL)
+   {
+      // Already holding satchel - detonate immediately
+      pEdict->v.button |= IN_ATTACK;
+      pBot.f_satchel_detonate_time = 0;
+      pBot.f_shoot_time = gpGlobals->time + 0.5;
+      pBot.current_weapon_index = -1;
+   }
+   else
+   {
+      // Need to switch to satchel first, then detonate next frame
+      pBot.b_satchel_detonating = TRUE;
+      UTIL_SelectItem(pEdict, "weapon_satchel");
+      pBot.f_shoot_time = gpGlobals->time + 0.3;
+   }
+
+   return TRUE;
+}
+
+// Called from BotThink - handles full detonation flow
+qboolean BotDetonateSatchel(bot_t &pBot)
+{
+   if (pBot.f_satchel_detonate_time <= 0)
+      return FALSE;
+
+   if (pBot.b_satchel_detonating)
+      return BotDetonateSatchel_HandleDetonating(pBot);
+
+   return BotDetonateSatchel_CheckAndCommit(pBot);
+}
+
+
+qboolean BotShootTripmine( bot_t &pBot )
+{
+   edict_t *pEdict = pBot.pEdict;
+   qboolean ret;
+
+   if (!pBot.b_shoot_tripmine)
+     return FALSE;
+   if (FNullEnt(pBot.tripmine_edict))
+     return FALSE;
+
+   // Shoot tripmine only if bot does not have target
+   if (pBot.pBotEnemy != NULL)
+     return FALSE;
+
+   // aim at the tripmine and fire the glock...
+   Vector v_enemy = pBot.v_tripmine - GetGunPosition( pEdict );
+   Vector enemy_angle = UTIL_VecToAngles(v_enemy);
+
+   pEdict->v.idealpitch = UTIL_WrapAngle(enemy_angle.x);
+   pEdict->v.ideal_yaw = UTIL_WrapAngle(enemy_angle.y);
+
+   //TODO: check if glock is available!!!!
+   // if not try find another weapon which can do this (type: WEAPON_FIRE or FIRE_ZOOM).
+   //TODO: or maybe throw grenade????
+   pBot.pBotEnemy = pBot.tripmine_edict;
+   ret = BotFireWeapon( v_enemy, pBot, VALVE_WEAPON_GLOCK );
+   pBot.pBotEnemy = NULL;
+   return ret;
+}

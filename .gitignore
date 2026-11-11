@@ -1,0 +1,47 @@
+# Binaries
+*.o
+*.so
+*/*.o
+*/*/*.o
+*.a
+*.framework
+*.exe
+*.dll
+*.pdb
+build*/
+CMakeLists.txt.*
+cmake_install.cmake
+*.orig
+*.cbp
+*.dsw
+*.vsxproj
+*.vsproj
+*.sln
+.waf-*
+waf-*
+.waf3-*
+waf3-*
+.lock*
+*.pyc
+.vscode/
+.vs/
+CMakeSettings.json
+CMakeFiles
+CMakeCache.txt
+
+# Android Studio/Gradle
+.gradle/
+.externalNativeBuild
+.cxx/
+.idea/
+local.properties
+.project
+.classpath
+.settings
+
+#Finder cache
+.DS_Store
+
+# Test harness build output (tests/.build/stub_engine, probe binaries)
+tests/.build/
+__pycache__/

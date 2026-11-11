@@ -1,0 +1,11 @@
+StargateTC server library (hl.so / hl.dll) — Metamod attribution
+
+jk_botti incorporates code and interfaces derived from Will Day's Metamod Half-Life
+server-side mod (http://www.metamod.org).
+
+Redistributions in source or binary form must reproduce the following sentence:
+
+THIS SOFTWARE CONTAINS CODE FROM WILL DAY'S METAMOD HALF-LIFE SERVER SIDE MOD
+(http://www.metamod.org)
+
+See bots/jk_botti/jk_botti_license.txt in the source repository.

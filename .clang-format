@@ -1,0 +1,41 @@
+# Derived from the existing sources in dlls/ and cl_dll/: tab indentation (4 columns), Allman braces,
+# "if( x )" / "ALERT( ... )" spacing inside parentheses, "case" labels at the switch's indent, pointers
+# bound to the name ("char *p"). About 95% of lines are 82 columns or less, so 100 is the limit.
+#
+# This is a guide for NEW and CHANGED code. Do not reformat existing files: it makes the diff
+# unreadable and the inherited code is not consistent. To format only your own changes run
+#   git clang-format
+# Not run against this tree yet, so check the result before committing it.
+Language: Cpp
+BasedOnStyle: LLVM
+
+UseTab: ForIndentation
+TabWidth: 4
+IndentWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 100
+
+BreakBeforeBraces: Allman
+IndentCaseLabels: false
+NamespaceIndentation: None
+AccessModifierOffset: -4
+
+PointerAlignment: Right
+SpacesInParentheses: true
+SpaceBeforeParens: Never
+SpacesInCStyleCastParentheses: false
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortCaseLabelsOnASingleLine: false
+
+# Include order matters in the SDK headers; never reorder it.
+SortIncludes: false
+IncludeBlocks: Preserve
+IndentPPDirectives: None
+
+ReflowComments: false
+MaxEmptyLinesToKeep: 2
+KeepEmptyLinesAtTheStartOfBlocks: false

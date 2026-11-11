@@ -1,0 +1,33 @@
+//
+// JK_Botti - be more human!
+//
+// bot_client.h
+//
+
+#ifndef BOT_CLIENT_H
+#define BOT_CLIENT_H
+
+void BotClient_Valve_WeaponList(void *p, int bot_index);
+
+void BotClient_Valve_CurrentWeapon(void *p, int bot_index);
+//void PlayerClient_Valve_CurrentWeapon(void *p, int player_index); // Was only needed for OP4 grapple detection (old method)
+
+void BotClient_Valve_AmmoX(void *p, int bot_index);
+
+void BotClient_Valve_AmmoPickup(void *p, int bot_index);
+
+void BotClient_Valve_WeaponPickup(void *p, int bot_index);
+
+void BotClient_Valve_ItemPickup(void *p, int bot_index);
+
+void BotClient_Valve_Health(void *p, int bot_index);
+
+void BotClient_Valve_Battery(void *p, int bot_index);
+
+void BotClient_Valve_Damage(void *p, int bot_index);
+
+void BotClient_Valve_DeathMsg(void *p, int bot_index);
+
+void BotClient_Valve_ScreenFade(void *p, int bot_index);
+
+#endif
