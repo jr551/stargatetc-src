@@ -69,5 +69,5 @@ library instead of loading them as a Metamod plugin.
   LeGendS Seagal, Trygee, Little, e-t172, Zerterf, Im_not_human, Waldoo, ZePrOuT
   — plus beta testers, and the Half-Life/Xash3D communities.
 
-If you are a rights-holder and want something removed, open an issue here and it
-will be handled.
+If you are a rights-holder and want something removed, contact the repository
+owner (`jr551`) on GitHub and it will be handled.
