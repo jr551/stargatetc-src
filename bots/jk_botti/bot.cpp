@@ -97,7 +97,7 @@ void BotKick(bot_t &pBot)
    JKASSERT(FNullEnt(pBot.pEdict));
    JKASSERT(pBot.userid <= 0);
 
-   safevoid_snprintf(cmd, sizeof(cmd), "kick # %d\n", pBot.userid);
+   safevoid_snprintf(cmd, sizeof(cmd), "kick #%d\n", pBot.userid);
 
    SERVER_COMMAND(cmd);  // kick the bot using 'kick # <userid>'
    SERVER_EXECUTE();
