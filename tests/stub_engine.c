@@ -1896,6 +1896,7 @@ typedef struct {
 	int enemy_visible;
 	float enemy_distance;
 	float out_of_combat;
+	float cloaked_time;
 	unsigned int rng;
 } bot_class_cloak_ctx_t;
 
@@ -1994,12 +1995,19 @@ static void sit_botclass(void)
 	if (!ok) fails++;
 
 	memset(&cloak, 0, sizeof(cloak));
-	cloak.skill = 3;
+	cloak.skill = 4;
 	cloak.charge = 9.0f;
 	cloak.enemy_distance = -1.0f;
 	cloak.out_of_combat = 1.0f;
 	ok = wants_cloak(cloaker, &cloak) == 1;
-	printf("SIT\tbotclass:cloak\t%s\tunseen->%d\n",
+	printf("SIT\tbotclass:cloak-sharp\t%s\tunseen->%d\n",
+		ok ? "PASS" : "FAIL", wants_cloak(cloaker, &cloak));
+	checks++;
+	if (!ok) fails++;
+
+	cloak.skill = 3;
+	ok = wants_cloak(cloaker, &cloak) == 0;
+	printf("SIT\tbotclass:cloak-sloppy\t%s\tunseen->%d\n",
 		ok ? "PASS" : "FAIL", wants_cloak(cloaker, &cloak));
 	checks++;
 	if (!ok) fails++;

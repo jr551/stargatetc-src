@@ -331,6 +331,8 @@ void GameDLLInit( void )
 
 	extern cvar_t sgtc_cvar_team_nocollide;
 	SGTC_RegisterOrAdoptCvar( &sgtc_cvar_team_nocollide );
+	extern cvar_t sgtc_cvar_bot_nocollide;
+	SGTC_RegisterOrAdoptCvar( &sgtc_cvar_bot_nocollide );
 	extern void SGTC_MuzzleFxInit( void );
 	SGTC_MuzzleFxInit();
 
@@ -608,4 +610,3 @@ void GameDLLInit( void )
 	SGTC_Bots_Init( SGTC_GetGameDllFunctions(), &g_engfuncs );
 #endif
 }
-
