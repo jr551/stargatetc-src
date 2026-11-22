@@ -1407,7 +1407,12 @@ void SGTC_Bots_PrepareSpawnLoadout( CBasePlayer *pl )
 	if( !profile )
 		return;
 
-	if( sgtc_cvar_wepselmode.value == 2.0f )
+	// The listen-server config can set mp_wepselmode to 0, which disables both
+	// VGUI loadout menus. In that mode a budget kit can legitimately select no
+	// weapons (for example when the bot's spawn budget is still zero). Bots
+	// still need a combat kit, so use the same class-specific preset as fixed
+	// pack mode; humans remain unaffected and still see no loadout menu.
+	if( sgtc_cvar_wepselmode.value != 1.0f )
 	{
 		SGTC_Bots_SelectPackLoadout( profile, pl->m_iSgtcGondArgs );
 		return;
@@ -1483,7 +1488,9 @@ void SGTC_Bots_GiveSpawnLoadout( CBasePlayer *pl )
 	for( int i = 0; i < SGTC_NUM_WEAPON_SLOTS; ++i )
 		slots[i] = 0;
 
-	if( sgtc_cvar_wepselmode.value == 2.0f )
+	// Keep late class/team resolution consistent with PlayerSpawn above: mode 0
+	// has no human loadout menu, but bots must not be left with melee only.
+	if( sgtc_cvar_wepselmode.value != 1.0f )
 	{
 		int preset[SGTC_PACK_MAX_SLOTS];
 		const int n = SGTC_PackGetSlots( team, cls - SGTC_CLASS_FIRST, 1, preset );

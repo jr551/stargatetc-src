@@ -15,6 +15,9 @@
 #include "sgtc_lanceproj.h"
 #include "sgtc_util.h"
 #include "sgtc_rea_debug.h"
+#ifdef BUILD_JK_BOTTI
+#include "sgtc_bots.h"
+#endif
 
 extern void SGTC_PackAuto_Cancel( CBasePlayer *pPlayer );
 
@@ -2164,7 +2167,16 @@ BOOL SGTC_SanitizeGondLoadout( CBasePlayer *pPlayer )
 		return FALSE;
 
 	SetWeaponAllow( pPlayer );
-	const BOOL bPacks = ( sgtc_cvar_wepselmode.value == 2.0f );
+	BOOL bPacks = ( sgtc_cvar_wepselmode.value == 2.0f );
+#ifdef BUILD_JK_BOTTI
+	// With menu mode 0 there is no human loadout menu. Bots still prepare a
+	// class pack so they can fight, and that preset must bypass the human budget
+	// sanitizer just like fixed-pack mode does. Otherwise a zero/low spawn
+	// budget silently strips the bot's ranged kit back to melee.
+	if( !bPacks && sgtc_cvar_wepselmode.value != 1.0f &&
+		FBitSet( pPlayer->pev->flags, FL_FAKECLIENT ) && SGTC_Bots_KitEnabled() )
+		bPacks = TRUE;
+#endif
 	if( bPacks )
 	{
 		const int iTeam = pPlayer->m_iSgtcTeam;
