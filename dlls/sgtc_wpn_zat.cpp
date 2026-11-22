@@ -86,7 +86,9 @@ void CZat::Precache( void )
 	PRECACHE_MODEL( "sprites/zatimpact.spr" );
 	PRECACHE_MODEL( "sprites/zatwave.spr" );
 
-	PRECACHE_SOUND( "weapons/zatvide.wav" );
+	// The packaged zatvide sample is an empty stub. Reuse Half-Life's
+	// Vortigaunt energy-zap sound until an authorized Stargate sample exists.
+	PRECACHE_SOUND( "weapons/electro4.wav" );
 	PRECACHE_SOUND( "weapons/zatimpact.wav" );
 
 	m_usFireA = PRECACHE_EVENT( 1, "events/zata.sc" );
@@ -196,7 +198,7 @@ void CZat::PrimaryAttack( void )
 	if( pool < 5 )
 	{
 		m_pPlayer->m_iWeaponVolume = 200;
-		EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_WEAPON, "weapons/zatvide.wav",
+		EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_WEAPON, "weapons/electro4.wav",
 			0.8f, 0.8f );
 		m_flNextPrimaryAttack = UTIL_WeaponTimeBase() + 0.5f;
 		return;

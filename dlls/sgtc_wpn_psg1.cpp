@@ -35,9 +35,10 @@ void CPsg1::Precache( void )
 	PRECACHE_MODEL( "models/p_psg1.mdl" );
 	PRECACHE_MODEL( "models/shell.mdl" );
 
-	PRECACHE_SOUND( "weapons/psg1_reload.wav" );
+	// The packaged PSG1 reload sample is an empty stub. Use Half-Life's
+	// shotgun cock sound for the bolt-cycle cue instead.
+	PRECACHE_SOUND( "weapons/scock1.wav" );
 	PRECACHE_SOUND( "weapons/psg1_fire.wav" );
-	PRECACHE_SOUND( "weapons/psg1_empty.wav" );
 
 	m_usFire = PRECACHE_EVENT( 1, "events/psg1.sc" );
 }
@@ -156,7 +157,7 @@ void CPsg1::SgtcBoltThink( void )
 	SetThink( NULL );
 	pev->nextthink = 0.0f;
 	if( m_pPlayer )
-		EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/psg1_reload.wav", 0.8f, ATTN_NORM );
+		EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/scock1.wav", 0.8f, ATTN_NORM );
 }
 
 SGTC_WEAPON_IDLE( CPsg1 )

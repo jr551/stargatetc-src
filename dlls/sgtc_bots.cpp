@@ -1690,8 +1690,16 @@ static void SGTC_Bots_TrackBots( void )
 
 		if( !pBot.is_used || FNullEnt( pent ) )
 		{
-			track.alive = FALSE;
-			track.have_origin = FALSE;
+			// Bot slots are reused after a kick. Clear the entire per-slot
+			// lifecycle state, not only position tracking: leaving
+			// alive_loadout_done set makes the replacement skip its first
+			// class assignment and spawn loadout.
+			if( track.alive || track.spawn_emitted || track.dead_loadout_done ||
+				track.alive_loadout_done || track.have_origin || track.spread_attempts )
+			{
+				memset( &track, 0, sizeof( track ) );
+				track.rng = SGTC_Bots_MixSeed( s_seed_base, i );
+			}
 			s_sgtcBotSentinelSince[i] = 0.0f;
 			continue;
 		}

@@ -105,7 +105,7 @@ LINK_ENTITY_TO_CLASS( monster_sgtc_jaffa_big, CSgtcJaffaBig );
 void CSgtcJaffa::Precache( void )
 {
 	PRECACHE_MODEL( JAFFA_MODEL );
-	PRECACHE_SOUND( "weapons/zatvide.wav" );
+	PRECACHE_SOUND( "weapons/electro4.wav" );
 	PRECACHE_SOUND( "weapons/zatimpact.wav" );
 	PRECACHE_SOUND( "weapons/hitbody1.wav" );
 }
@@ -247,7 +247,7 @@ void CSgtcJaffa::RangedAttack( CBaseEntity *pTarget )
 		pProj->pev->sequence = 0;
 	}
 	SetAnim( "standing_mp5", 44, 1.0f );
-	EMIT_SOUND( ENT( pev ), CHAN_WEAPON, "weapons/zatvide.wav", 0.8f, ATTN_NORM );
+	EMIT_SOUND( ENT( pev ), CHAN_WEAPON, "weapons/electro4.wav", 0.8f, ATTN_NORM );
 	m_flNextRanged = gpGlobals->time + JAFFA_RANGED_DELAY;
 }
 
