@@ -21,6 +21,7 @@
 #include	"decals.h"
 #include	"gamerules.h"
 #include	"game.h"
+#include	"sgtc_testcmd.h"
 
 #ifdef BUILD_JK_BOTTI
 #include "sgtc_bots.h"
@@ -829,6 +830,7 @@ CBaseEntity *CBaseEntity::Create( const char *szName, const Vector &vecOrigin, c
 		ALERT ( at_console, "NULL Ent in Create!\n" );
 		return NULL;
 	}
+	SGTC_TestEntityAlloc( szName );
 	pEntity = Instance( pent );
 	pEntity->pev->owner = pentOwner;
 	pEntity->pev->origin = vecOrigin;

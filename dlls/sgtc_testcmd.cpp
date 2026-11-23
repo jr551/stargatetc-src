@@ -72,6 +72,7 @@ static char *next_tok( char **state, const char *seps )
 static cvar_t sgtc_test_enable = { "sgtc_test_enable", "0", FCVAR_SERVER };
 static cvar_t sgtc_test_script = { "sgtc_test_script", "", FCVAR_SERVER };
 static cvar_t sgtc_test_quit   = { "sgtc_test_quit", "0", FCVAR_SERVER };
+static cvar_t sgtc_test_alloclog = { "sgtc_test_alloclog", "0", FCVAR_SERVER };
 static cvar_t sgtc_test_watch  = { "sgtc_test_watch", "0", FCVAR_SERVER };
 static cvar_t sgtc_test_probe  = { "sgtc_test_probe", "", FCVAR_SERVER };
 static cvar_t sgtc_test_probe_interval = { "sgtc_test_probe_interval", "2", FCVAR_SERVER };
@@ -96,6 +97,56 @@ static BOOL s_test_timed2_done = FALSE;
 static BOOL s_test_timed3_done = FALSE;
 static int s_test_repeat_done = 0;
 static double s_test_repeat_next = 0.0;
+
+static void test_out( const char *fmt, ... );
+
+// Temporary allocation probe: group known-classname allocations into
+// half-second windows so short edict bursts can be correlated with bot state.
+#define SGTC_TEST_ALLOC_CLASSES 64
+static char s_test_alloc_class[SGTC_TEST_ALLOC_CLASSES][64];
+static int s_test_alloc_count[SGTC_TEST_ALLOC_CLASSES];
+static double s_test_alloc_window = -1.0;
+
+static void SGTC_TestEntityAllocFlush( double flEnd )
+{
+	for( int i = 0; i < SGTC_TEST_ALLOC_CLASSES; ++i )
+	{
+		if( s_test_alloc_count[i] <= 0 )
+			continue;
+		test_out( "SGTCALLOC {\"start\":%.3f,\"end\":%.3f,\"class\":\"%s\",\"count\":%d,\"used\":%d}",
+			s_test_alloc_window, flEnd, s_test_alloc_class[i], s_test_alloc_count[i],
+			(int)NUMBER_OF_ENTITIES() );
+		s_test_alloc_count[i] = 0;
+	}
+}
+
+void SGTC_TestEntityAlloc( const char *pszClassname )
+{
+	if( !pszClassname || !pszClassname[0] ||
+		CVAR_GET_FLOAT( "sgtc_test_alloclog" ) == 0.0f || !gpGlobals )
+		return;
+
+	const double flNow = gpGlobals->time;
+	if( s_test_alloc_window < 0.0 )
+		s_test_alloc_window = flNow;
+	else if( flNow - s_test_alloc_window >= 0.5 )
+	{
+		SGTC_TestEntityAllocFlush( flNow );
+		s_test_alloc_window = flNow;
+	}
+
+	for( int i = 0; i < SGTC_TEST_ALLOC_CLASSES; ++i )
+	{
+		if( s_test_alloc_class[i][0] &&
+			strcmp( s_test_alloc_class[i], pszClassname ) != 0 )
+			continue;
+		if( !s_test_alloc_class[i][0] )
+			snprintf( s_test_alloc_class[i], sizeof( s_test_alloc_class[i] ),
+				"%s", pszClassname );
+		++s_test_alloc_count[i];
+		return;
+	}
+}
 
 static void test_out( const char *fmt, ... )
 {
@@ -1442,6 +1493,7 @@ void SGTC_TestInit( void )
 	SGTC_RegisterOrAdoptCvar( &sgtc_test_enable );
 	SGTC_RegisterOrAdoptCvar( &sgtc_test_script );
 	SGTC_RegisterOrAdoptCvar( &sgtc_test_quit );
+	SGTC_RegisterOrAdoptCvar( &sgtc_test_alloclog );
 	SGTC_RegisterOrAdoptCvar( &sgtc_test_watch );
 	SGTC_RegisterOrAdoptCvar( &sgtc_test_probe );
 	SGTC_RegisterOrAdoptCvar( &sgtc_test_probe_interval );
@@ -1484,4 +1536,3 @@ void SGTC_TestClientCommand( void *pEntity )
 	SGTC_TestCommand( line );
 	CLIENT_PRINTF( (edict_t *)pEntity, print_console, UTIL_VarArgs( "sgtc_test: %s\n", line ) );
 }
-

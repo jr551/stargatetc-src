@@ -41,6 +41,7 @@ public:
 	float m_flLifeEnd;			// port life cap (SGTC_ZATPROJ_LIFETIME); ref Think reads +0x128 here, meaning unverified (#123)
 	char m_bAllyShield;			// ref +0xd5
 	char m_bBeamMode;			// ref +0x40c — oldzat long-beam mode (trace 8050u)
+	char m_bImpactFxDone;		// prevent repeated impact effects while removal is deferred
 	int m_iTouchPass;			// ref +0xfc — bounce pass-through arm
 	float m_flTouchPassTime;	// ref +0x404
 	int m_iZatWaveSprite;		// ref +0x3ec — Precache sprites/zatwave.spr

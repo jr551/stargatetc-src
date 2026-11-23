@@ -15,6 +15,7 @@
 #include "sgtc_misc.h"
 #include "sgtc_lanceproj.h"
 #include "sgtc_diag.h"
+#include "sgtc_testcmd.h"
 #include "sgtc_shield.h"
 #include "effects.h"
 #include "sgtc_util.h"
@@ -39,6 +40,7 @@ static void SGTC_ZatImpactDLight( const Vector &origin )
 
 static void SGTC_ZatImpactFx( const Vector &origin )
 {
+	SGTC_TestEntityAlloc( "zat_impact_fx" );
 	CSprite *pSpr = CSprite::SpriteCreate( "sprites/zatimpact.spr", origin, TRUE );
 	if( pSpr )
 	{
@@ -425,6 +427,7 @@ void CZatProj::Spawn( void )
 	SetTouch( &CZatProj::ProjTouch );
 	SetThink( &CZatProj::Think );
 	m_flLifeEnd = gpGlobals->time + SGTC_ZATPROJ_LIFETIME;
+	m_bImpactFxDone = 0;
 	UTIL_MakeVectors( pev->angles );
 	Vector vel = gpGlobals->v_forward.Normalize() * 2000.0f;	// ref rodata = 2000 @0x1b46cd
 	pev->velocity = vel;
@@ -436,11 +439,13 @@ void CZatProj::Spawn( void )
 CZatProj *CZatProj::CreateZatProj( const Vector &vecOrigin, const Vector &vecAngles,
 	CBaseEntity *pOwner, CZat *pWeapon )
 {
+	SGTC_TestEntityAlloc( "zat_proj" );
 	CZatProj *pProj = GetClassPtr( (CZatProj *)NULL );
 	pProj->m_pZatOwner = NULL;
 	pProj->m_flLifeEnd = 0.0f;
 	pProj->m_bAllyShield = 0;
 	pProj->m_bBeamMode = 0;
+	pProj->m_bImpactFxDone = 0;
 	pProj->m_iTouchPass = 0;
 	pProj->m_flTouchPassTime = 0.0f;
 	pProj->m_vecBeamEnd = vecOrigin;	// ref +0x410
@@ -503,7 +508,11 @@ void CZatProj::Think( void )
 			if( !bBlocked && !m_bAllyShield )
 			{
 				pev->origin = vecSavedOrigin;	// ref: restore local_5c, not trace end
-				SGTC_ZatImpactFx( pev->origin );
+				if( !m_bImpactFxDone )
+				{
+					m_bImpactFxDone = 1;
+					SGTC_ZatImpactFx( pev->origin );
+				}
 				SGTC_ShieldEmitArmImpactFlash( pScan );	// ref shieldemit +0x104
 				UTIL_Remove( this );
 				return;
@@ -518,8 +527,11 @@ void CZatProj::Think( void )
 	// forever; whether the ref field is the suppress timer instead is open (#123).
 	if( gpGlobals->time >= m_flLifeEnd )
 	{
-		if( !m_bAllyShield )
+		if( !m_bAllyShield && !m_bImpactFxDone )
+		{
+			m_bImpactFxDone = 1;
 			SGTC_ZatImpactFx( pev->origin );
+		}
 		UTIL_Remove( this );
 	}
 }
@@ -582,7 +594,11 @@ void CZatProj::ProjTouch( CBaseEntity *pOther )
 				UTIL_Remove( pEnt );
 		}
 
-		SGTC_ZatImpactFx( pev->origin );
+		if( !m_bImpactFxDone )
+		{
+			m_bImpactFxDone = 1;
+			SGTC_ZatImpactFx( pev->origin );
+		}
 		if( m_bBeamMode )
 			SGTC_ZatProjTouchBeams( this );
 		SGTC_ZatProjScanGate( pev ) = gpGlobals->time + 0.5f;	// ref pev+0x1e4
@@ -603,6 +619,7 @@ TYPEDESCRIPTION CZatProj::m_SaveData[] =
 	DEFINE_FIELD( CZatProj, m_flLifeEnd, FIELD_TIME ),
 	DEFINE_FIELD( CZatProj, m_bAllyShield, FIELD_CHARACTER ),
 	DEFINE_FIELD( CZatProj, m_bBeamMode, FIELD_CHARACTER ),
+	DEFINE_FIELD( CZatProj, m_bImpactFxDone, FIELD_CHARACTER ),
 	DEFINE_FIELD( CZatProj, m_iTouchPass, FIELD_INTEGER ),
 	DEFINE_FIELD( CZatProj, m_flTouchPassTime, FIELD_TIME ),
 	DEFINE_FIELD( CZatProj, m_vecBeamEnd, FIELD_POSITION_VECTOR ),

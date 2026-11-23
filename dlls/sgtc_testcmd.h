@@ -30,9 +30,11 @@ void SGTC_TestClientCommand(void *pEntity);
 // Per-frame movement sampler, enabled by $sgtc_test_watch (dedicated/headless runs).
 void SGTC_TestFrame(void);
 
+// Count classname allocations in short windows while sgtc_test_alloclog is on.
+void SGTC_TestEntityAlloc(const char *pszClassname);
+
 #ifdef __cplusplus
 }
 #endif
 
 #endif // SGTC_TESTCMD_H
-

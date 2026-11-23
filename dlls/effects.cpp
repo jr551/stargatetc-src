@@ -15,6 +15,7 @@
 
 #include "extdll.h"
 #include "sgtc_diag.h"
+#include "sgtc_testcmd.h"
 #include "util.h"
 #include "cbase.h"
 #include "monsters.h"
@@ -1183,6 +1184,9 @@ void CSprite::SpriteInit( const char *pSpriteName, const Vector &origin )
 
 CSprite *CSprite::SpriteCreate( const char *pSpriteName, const Vector &origin, BOOL animate )
 {
+#ifndef CLIENT_DLL
+	SGTC_TestEntityAlloc( "env_sprite" );
+#endif
 	CSprite *pSprite = GetClassPtr( (CSprite *)NULL );
 	pSprite->SpriteInit( pSpriteName, origin );
 	pSprite->pev->classname = MAKE_STRING( "env_sprite" );

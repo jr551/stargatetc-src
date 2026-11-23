@@ -28,6 +28,7 @@
 #include "decals.h"
 #include "game.h"
 #include "sgtc_rules.h"
+#include "sgtc_testcmd.h"
 
 //===================grenade
 
@@ -196,7 +197,10 @@ extern void SGTC_C4Fire_Spawn( const Vector &vecOrigin );
 void CGrenade::Detonate( void )
 {
 	if( FClassnameIs( pev, "monster_satchel" ) )
+	{
+		SGTC_TestEntityAlloc( "satchel_detonate" );
 		SGTC_C4Fire_Spawn( pev->origin );
+	}
 	TraceResult tr;
 	Vector vecSpot;// trace starts here!
 
