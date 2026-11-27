@@ -1,6 +1,7 @@
 // sgtc_muzzlefx.cpp — visible muzzle flash light + nozzle smoke for bullet
-// weapons.  Server-side temp entities only; no client changes.  Every player
-// bullet path (humans and bots) funnels through CBaseEntity::FireBullets.
+// weapons.  Server-side temp entities only; no client changes.  Player guns
+// (humans and bots) call this from CBaseEntity::FireBulletsPlayer; the other
+// shooters (turrets, tanks, gates, barney) come through CBaseEntity::FireBullets.
 #include "extdll.h"
 #include "util.h"
 #include "cbase.h"
@@ -20,8 +21,8 @@ void SGTC_MuzzleFxInit( void )
 	memset( s_flLastSmoke, 0, sizeof( s_flLastSmoke ) );
 }
 
-// Called from CBaseEntity::FireBullets for every bullet shot (cShots loop is
-// outside; one flash per FireBullets call, matching EF_MUZZLEFLASH).
+// Called once per shot call from CBaseEntity::FireBullets (non-player shooters)
+// and CBaseEntity::FireBulletsPlayer (player guns). The cShots loop is outside.
 void SGTC_MuzzleFx( entvars_t *pev, const Vector &vecSrc, int iBulletType )
 {
 	if( !pev || !( pev->flags & FL_CLIENT ) )
