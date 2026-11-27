@@ -391,6 +391,7 @@ static void cmd_hazardat( float x, float y, float z );
 static void cmd_hurtplayer( int n );
 static void cmd_setammo( int n );
 static void cmd_setstamina( int n );
+static void cmd_colormap9( int n );
 static CBaseEntity *SGTC_TestFindEntity( const char * );
 static void cmd_useentdest( const char *pszTarget );
 static void cmd_ruletest( void );
@@ -592,6 +593,8 @@ static int SGTC_TestRunToken( const char *pszToken )
 		cmd_setammo( atoi( pszToken + 5 ) );
 	else if( !strncmp( pszToken, "stamina_", 8 ) )
 		cmd_setstamina( atoi( pszToken + 8 ) );
+	else if( !strncmp( pszToken, "colormap9_", 10 ) )
+		cmd_colormap9( atoi( pszToken + 10 ) );
 	else
 		return 0;
 	return 1;
@@ -711,6 +714,21 @@ static void cmd_hurtplayer( int n )
 		return;
 	pPlayer->TakeDamage( pPlayer->pev, pPlayer->pev, (float)n, DMG_GENERIC );
 	test_out( "SGTCTEST {\"cmd\":\"hurtplayer\",\"amount\":%d,\"health\":%.0f}", n, pPlayer->pev->health );
+}
+
+// Test-only: set or clear colormap bit 9 on the first player. The invis shield
+// wall starts only when that bit is set (sgtc_wpn_invis.cpp), and a normal
+// player colour never sets it.
+static void cmd_colormap9( int n )
+{
+	CBasePlayer *pPlayer = (CBasePlayer *)UTIL_PlayerByIndex( 1 );
+	if( !pPlayer || !pPlayer->IsAlive() )
+		return;
+	if( n )
+		pPlayer->pev->colormap |= 512;
+	else
+		pPlayer->pev->colormap &= ~512;
+	test_out( "SGTCTEST {\"cmd\":\"colormap9\",\"set\":%d,\"colormap\":%d}", n ? 1 : 0, pPlayer->pev->colormap );
 }
 
 // Test-only: set the first player's stamina to n. Glstaff shots drain stamina,
