@@ -263,6 +263,9 @@ int CCoujaf::Swing( int fFirst )	// ref @0xd4962 (crowbar hull + SGTC latch swin
 		{
 			m_flNextPrimaryAttack = UTIL_WeaponTimeBase() + kCoujafSwingMissDelay;
 			m_pPlayer->SetAnimation( PLAYER_ATTACK1 );
+			// A miss swings too. Without this event an air swing made no sound.
+			PLAYBACK_EVENT_FULL( SGTC_EVENT_FLAGS, m_pPlayer->edict(), m_usFire,
+				0.0, (float *)&g_vecZero, (float *)&g_vecZero, 0, 0, 0, 0, 0, 0 );
 		}
 	}
 	else
