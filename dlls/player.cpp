@@ -1150,7 +1150,8 @@ void CBasePlayer::Killed( entvars_t *pevAttacker, int iGib )
 	// SGTC_OFFMAP_COORD and before PlayerKilled() tears down the corpse.
 #ifdef BUILD_JK_BOTTI
 	SGTC_Bots_OnPlayerKilled( ENTINDEX( edict() ),
-		SGTC_BotDeathWeaponName( this, pevAttacker, g_pevLastInflictor ) );
+		SGTC_BotDeathWeaponName( this, pevAttacker, g_pevLastInflictor ),
+		( pevAttacker && !FNullEnt( pevAttacker ) ) ? ENTINDEX( ENT( pevAttacker ) ) : 0 );
 #endif
 
 	// Bot director: report the duel while the victim's position and the last

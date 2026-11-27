@@ -169,11 +169,15 @@ void CStargateTeamDM::InitHUD( CBasePlayer *pPlayer )
 	static int s_SgtcHudInitA[5];	// ref this+0x438/+0xa44-adjacent tables
 	static int s_SgtcHudInitB[5];
 	for( int t = 0; t < 5; t++ ) { s_SgtcHudInitA[t] = 0; s_SgtcHudInitB[t] = 0; }
-	pPlayer->m_iSgtcPortraitSel = 0;	// ref +0xa44
-	pPlayer->m_iSgtcTeam = 0;			// ref +0x438
+	const BOOL bot = FBitSet( pPlayer->pev->flags, FL_FAKECLIENT );
 	pPlayer->m_iSgtcInfoLock = 0;		// ref +0xdc — info lock off at connect
-	pPlayer->m_szTeamName[0] = '\0';	// ref +0xe08 strncpy
-	SGTC_ResetPlayerOnConnect( pPlayer );
+	if( !bot )
+	{
+		pPlayer->m_iSgtcPortraitSel = 0;	// ref +0xa44
+		pPlayer->m_iSgtcTeam = 0;			// ref +0x438
+		pPlayer->m_szTeamName[0] = '\0';	// ref +0xe08 strncpy
+		SGTC_ResetPlayerOnConnect( pPlayer );
+	}
 	CHalfLifeMultiplay::InitHUD( pPlayer );
 
 	// ref: TeamNames = BYTE num_teams + STRING names + 28 zero bytes.
@@ -212,7 +216,11 @@ void CStargateTeamDM::InitHUD( CBasePlayer *pPlayer )
 		// ref AddHudPortrait: full client layout, about this player, to the joiner.
 		SGTC_EmitAddPortrait( MSG_ONE, pPlayer->edict(), (CBasePlayer *)plr );
 	}
-	if( sgtc_G_players_focused + sgtc_T_players_focused < 1 )
+	// Bots are assigned a team and allowed into play by the bot lifecycle;
+	// sending a fresh fake client through StartDeathCam here races that
+	// assignment, turning its one-frame Spawn into an observer/world death.
+	if( sgtc_G_players_focused + sgtc_T_players_focused < 1 &&
+		!FBitSet( pPlayer->pev->flags, FL_FAKECLIENT ) )
 		pPlayer->StartDeathCam();
 	sgtc_SendPL = 1;	// ref m_SendPL = 1 (DM InitHUD @0x191238)
 }
@@ -233,12 +241,16 @@ void CStargateTeamCP::InitHUD( CBasePlayer *pPlayer )
 	// frame), so the latch must be cleared here — a fresh connect was never
 	// alive this round.
 	pPlayer->m_bSgtcRoundAlive = 0;	// ref +0x3e4 seen-alive latch
-	SGTC_ResetPlayerOnConnect( pPlayer );
-	pPlayer->m_iSgtcPortraitShown = 1;	// ref +0xa40
-	pPlayer->m_iSgtcPortraitSel = 0;	// ref +0xa44
-	pPlayer->m_iSgtcTeam = 0;			// ref +0x438
-	pPlayer->m_iSgtcEnvStage = 0;		// ref +0xc90
-	pPlayer->m_szTeamName[0] = '\0';	// ref +0xe08 strncpy
+	const BOOL bot = FBitSet( pPlayer->pev->flags, FL_FAKECLIENT );
+	if( !bot )
+	{
+		SGTC_ResetPlayerOnConnect( pPlayer );
+		pPlayer->m_iSgtcPortraitShown = 1;	// ref +0xa40
+		pPlayer->m_iSgtcPortraitSel = 0;	// ref +0xa44
+		pPlayer->m_iSgtcTeam = 0;			// ref +0x438
+		pPlayer->m_iSgtcEnvStage = 0;		// ref +0xc90
+		pPlayer->m_szTeamName[0] = '\0';	// ref +0xe08 strncpy
+	}
 	CHalfLifeMultiplay::InitHUD( pPlayer );
 
 	SGTC_SendTeamNames( pPlayer );	// MSG_ONE TeamNames + 28 pad bytes
@@ -292,7 +304,10 @@ void CStargateTeamCP::InitHUD( CBasePlayer *pPlayer )
 		}
 	}
 
-	pPlayer->StartDeathCam();
+	// The human connect path enters the observer/dead-respawn flow. Bots have
+	// already been assigned a team and spawned by the bot lifecycle.
+	if( !bot )
+		pPlayer->StartDeathCam();
 	// ref: if( T_players_focused + G_players_focused < 1 ) calls gamerules
 	// vtable+0x38 (mode-check); port has no mapped equivalent and the gate
 	// only fires before any client joins, so it is inert in play.

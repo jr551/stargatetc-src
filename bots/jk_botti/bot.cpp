@@ -944,6 +944,13 @@ static int BotCreate_CreateFakeClient(char *c_name, char *c_skin,
 
    // JK_Botti fix, call our own ClientPutInServer first.
    JK_Botti_ClientPutInServer( BotEnt );
+
+   // SGTC must recognise this slot during MDLL_ClientPutInServer, before
+   // BotCreate_InitializeState performs the full bot_t reset below.
+   memset(&bots[index], 0, sizeof(bots[index]));
+   bots[index].is_used = TRUE;
+   bots[index].pEdict = BotEnt;
+
    MDLL_ClientPutInServer( BotEnt );
 
    BotEnt->v.flags |= FL_THIRDPARTYBOT | FL_FAKECLIENT;

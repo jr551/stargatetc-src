@@ -66,6 +66,8 @@ extern cvar_t jk_botti_version;
 extern int num_waypoints;
 extern qboolean g_auto_waypoint;
 extern void fast_random_seed(unsigned int seed);
+class CStargateTeamDM;
+extern CStargateTeamDM *SGTC_GetTeamDMRules( void );
 
 // Read by the bot code (bots/jk_botti/bot.cpp, declared in bot.h).
 int sgtc_bot_roam_enabled = 1;
@@ -868,6 +870,7 @@ typedef struct
 	qboolean spawn_emitted;
 	qboolean dead_loadout_done;
 	qboolean alive_loadout_done;
+	qboolean team_selection_pending;	// dead-phase team/class to consume on the next alive pass
 	qboolean have_origin;
 	Vector prev_origin;
 	float last_stuck_event;
@@ -961,6 +964,42 @@ static qboolean SGTC_Bots_IsBotEdict( edict_t *pent )
 	return FBitSet( pent->v.flags, FL_FAKECLIENT ) ? TRUE : FALSE;
 }
 
+static void SGTC_Bots_ApplyLoadout( int index, qboolean alive );
+
+// Choose and publish a fake client's team/class before CBasePlayer::Spawn calls
+// SetDefaultPlayerTeam/GetPlayerSpawnSpot. The first alive loadout pass used to
+// pick a different team after the spawn point had already been selected (#315).
+BOOL SGTC_Bots_PrepareFirstSpawn( CBasePlayer *pPlayer )
+{
+	int index;
+
+	if( !pPlayer || !pPlayer->pev || !SGTC_Bots_IsBotPlayer( pPlayer ) )
+		return FALSE;
+
+	// Stock deathmatch and the non-Torri/Goa'uld modes do not use the
+	// team-filtered spawn contract this preparation exists to protect.
+	if( !SGTC_GetTeamDMRules() )
+		return FALSE;
+
+	index = UTIL_GetBotIndex( pPlayer->edict() );
+	if( index < 0 || index >= 32 || !bots[index].is_used || bots[index].pEdict != pPlayer->edict() )
+		return FALSE;
+
+	// ClientPutInServer runs before BotCreate sets FL_FAKECLIENT, and Spawn
+	// clears both flags. ApplyLoadout only needs them for this synchronous
+	// selection pass, so restore the exact incoming state afterwards.
+	const int savedFlags = pPlayer->pev->flags;
+	pPlayer->pev->flags |= FL_CLIENT | FL_FAKECLIENT;
+	s_track[index].team_selection_pending = FALSE;
+	SGTC_Bots_ApplyLoadout( index, FALSE );
+	pPlayer->pev->flags = savedFlags;
+
+	return ( pPlayer->m_iSgtcTeam == SGTC_TEAM_TORRI ||
+		pPlayer->m_iSgtcTeam == SGTC_TEAM_GOAULD ) &&
+		pPlayer->m_iSgtcPortraitSel >= SGTC_CLASS_FIRST &&
+		pPlayer->m_iSgtcPortraitSel <= SGTC_CLASS_LAST ? TRUE : FALSE;
+}
+
 static void SGTC_Bots_ApplyLoadout( int index, qboolean alive )
 {
 	edict_t *pent = bots[index].pEdict;
@@ -985,9 +1024,28 @@ static void SGTC_Bots_ApplyLoadout( int index, qboolean alive )
 
 	sgtc_bot_track_t &track = s_track[index];
 
-	const int team = SGTC_Bots_PickTeam( &st, forced_team, SGTC_Bots_NextRandom( &track.rng ) );
+	const qboolean teamRules = ( SGTC_GetTeamDMRules() != NULL );
+	const qboolean usePending = alive && teamRules && track.team_selection_pending &&
+		( pl->m_iSgtcTeam == SGTC_TEAM_TORRI || pl->m_iSgtcTeam == SGTC_TEAM_GOAULD );
+
+	int team;
+	if( usePending )
+		team = pl->m_iSgtcTeam;
+	else
+		team = SGTC_Bots_PickTeam( &st, forced_team, SGTC_Bots_NextRandom( &track.rng ) );
+
+	int classOverride = forced_class;
+	if( usePending )
+	{
+		int selected = pl->m_iSgtcPortraitSel;
+		if( selected < SGTC_CLASS_FIRST || selected > SGTC_CLASS_LAST )
+			selected = pl->m_iSgtcPortraitShown;
+		if( selected >= SGTC_CLASS_FIRST && selected <= SGTC_CLASS_LAST )
+			classOverride = selected;
+	}
+
 	int cls = SGTC_Bots_PickClass( team, st.class_caps[team], st.class_counts[team],
-		forced_class, SGTC_Bots_NextRandom( &track.rng ) );
+		classOverride, SGTC_Bots_NextRandom( &track.rng ) );
 
 	if( cls == SGTC_CLASS_NONE )
 		return; // every class capped: leave the engine's own re-roll in charge
@@ -1001,9 +1059,15 @@ static void SGTC_Bots_ApplyLoadout( int index, qboolean alive )
 		return;
 
 	strlcpy( pl->m_szTeamName, team_name, sizeof( pl->m_szTeamName ) );
+	if( alive && pl->m_iSgtcActiveTeam != team )
+		pl->m_iSgtcPrevTeam = pl->m_iSgtcActiveTeam;
 	pl->m_iSgtcTeam = team;
-	pl->m_iSgtcPortraitSel = cls;
 	if( alive )
+		pl->m_iSgtcActiveTeam = team;
+	pl->m_iSgtcPortraitSel = cls;
+	if( alive && pl->m_iSgtcPortraitShown != cls )
+		pl->m_iSgtcPrevClass = pl->m_iSgtcPortraitShown;
+	if( alive || pl->m_iSgtcPortraitShown == SGTC_CLASS_NONE )
 		pl->m_iSgtcPortraitShown = cls;
 
 	// SgtcEntTeam numbering: pev->team is the OPPOSITE of m_iSgtcTeam.
@@ -1016,6 +1080,11 @@ static void SGTC_Bots_ApplyLoadout( int index, qboolean alive )
 
 	g_engfuncs.pfnSetClientKeyValue( entindex, infobuf, "team", team_name );
 	g_engfuncs.pfnSetClientKeyValue( entindex, infobuf, "model", model );
+
+	if( alive )
+		track.team_selection_pending = FALSE;
+	else if( teamRules )
+		track.team_selection_pending = TRUE;
 
 	// pfnSetClientKeyValue only changes the userinfo key, which the engine applies
 	// at the NEXT spawn — a bot that is already alive kept rendering the default
@@ -1298,7 +1367,7 @@ extern "C" int SGTC_Bots_GetDeathState( int slot, float out_origin[3],
 	return bots[slot].b_death_snapshot_valid ? 1 : 0;
 }
 
-void SGTC_Bots_OnPlayerKilled( int victim_index, const char *weapon_name )
+void SGTC_Bots_OnPlayerKilled( int victim_index, const char *weapon_name, int attacker_index )
 {
 	edict_t *pent;
 	float origin[3];
@@ -1322,6 +1391,7 @@ void SGTC_Bots_OnPlayerKilled( int victim_index, const char *weapon_name )
 	origin[2] = pent->v.origin.z;
 
 	SGTC_Bots_CaptureDeathState( index, origin, weapon_name );
+	bots[index].killer_edict = attacker_index > 0 ? INDEXENT( attacker_index ) : NULL;
 }
 
 static void SGTC_Bots_EmitSpawn( int index, CBasePlayer *pl )
@@ -1430,6 +1500,7 @@ static void SGTC_Bots_EmitDeath( int index )
 	// One-shot: never let this death's snapshot leak into the next spawn.
 	bots[index].b_death_snapshot_valid = FALSE;
 	bots[index].sz_death_weapon[0] = '\0';
+	bots[index].killer_edict = NULL;
 }
 
 static void SGTC_Bots_EmitTeleport( int index, const Vector &from, const Vector &to )
@@ -1695,7 +1766,8 @@ static void SGTC_Bots_TrackBots( void )
 			// alive_loadout_done set makes the replacement skip its first
 			// class assignment and spawn loadout.
 			if( track.alive || track.spawn_emitted || track.dead_loadout_done ||
-				track.alive_loadout_done || track.have_origin || track.spread_attempts )
+				track.alive_loadout_done || track.team_selection_pending ||
+				track.have_origin || track.spread_attempts )
 			{
 				memset( &track, 0, sizeof( track ) );
 				track.rng = SGTC_Bots_MixSeed( s_seed_base, i );
