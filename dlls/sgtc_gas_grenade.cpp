@@ -147,6 +147,28 @@ void CSGTCGasCloud::TumbleThink( void )
 	}
 }
 
+// A gas-sprite burst at the cloud, scaled with its radius. TE_SPRITE's scale is a byte
+// in tenths, so radius/4 gives 0.6 at the start and 3.7 at the 150 limit.
+static void SGTC_GasCloudBurst( const Vector &at, short spriteIndex, float flRadius )
+{
+	if( !spriteIndex )
+		return;
+	int iScale = (int)( flRadius / 4.0f );
+	if( iScale < 5 )
+		iScale = 5;
+	if( iScale > 37 )
+		iScale = 37;
+	MESSAGE_BEGIN( MSG_PVS, SVC_TEMPENTITY, at );
+		WRITE_BYTE( TE_SPRITE );
+		WRITE_COORD( at.x );
+		WRITE_COORD( at.y );
+		WRITE_COORD( at.z );
+		WRITE_SHORT( spriteIndex );
+		WRITE_BYTE( iScale );
+		WRITE_BYTE( 180 );	// brightness
+	MESSAGE_END();
+}
+
 void CSGTCGasCloud::CloudThink( void )
 {
 	if( gpGlobals->time >= m_flExpireTime )
@@ -162,6 +184,11 @@ void CSGTCGasCloud::CloudThink( void )
 	const short iSpr = SGTC_GasSpriteIndex( m_iGasType );
 	const int iWMain = SGTC_GasBeamWidth( pev->dmg, 0.7f );
 	SGTC_GasBeamPoints( origin + Vector( 0, 0, 8 ), origin - Vector( 0, 0, 8 ), iSpr, iWMain );
+	// The beams above are a 16-unit strip about 42 wide. The cloud lands 1000+ units
+	// away in play, where that strip is a few pixels, and the cough radius (up to 150)
+	// had no visible counterpart. This sprite burst grows with the radius, so the cloud
+	// reads at range.
+	SGTC_GasCloudBurst( origin + Vector( 0, 0, 16 ), iSpr, m_flCloudRadius );
 	// ref @0x11bca6: second burst when ((pev->effects >> 4) & 1) == 0 (EF_NODRAW set).
 	if( (((int)pev->effects >> 4) & 1) == 0 )
 	{
