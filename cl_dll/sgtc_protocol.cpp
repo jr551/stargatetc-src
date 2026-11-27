@@ -1324,6 +1324,26 @@ void EV_SGTC_BeamStop( struct event_args_s *args )
 // ref 0x10008e0e — shield: EMPTY body in ref
 void EV_SGTC_Shield( struct event_args_s *args )
 {
+	int idx = args->entindex;
+	vec3_t origin, angles, forward, right, up, at;
+	int mdl;
+
+	VectorCopy( args->origin, origin );
+	VectorCopy( args->angles, angles );
+	AngleVectors( angles, forward, right, up );
+
+	// The raise cue. The wall itself is the server's effect_shield entity.
+	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/P90recharge.wav",
+		0.9f, 0.8f, 0, 100 );
+
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/shieldglow.spr" );
+	if( mdl > 0 )
+	{
+		VectorMA( origin, 64.0f, forward, at );
+		at[2] += 24.0f;	// eye height
+		gEngfuncs.pEfxAPI->R_TempSprite( at, vec3_origin, 0.6f, mdl, kRenderTransAdd,
+			kRenderFxNoDissipation, 1.0f, 0.5f, FTENT_FADEOUT );
+	}
 }
 
 // Puffs for the medic and goaregen events: a short burst of additive sprites,
@@ -1380,6 +1400,17 @@ void EV_SGTC_Throw( struct event_args_s *args )
 		0.5f + 0.3f * flStrength, 0.8f, 0, 98 + gEngfuncs.pfnRandomLong( 0, 7 ) );
 }
 
+// Self-applied puffs (a medic self heal, goaregen on the shooter) would sit at the
+// feet, below the first-person view. Draw them a little in front and up instead.
+static void SGTC_ViewPuffOrigin( const struct event_args_s *args, float *out )
+{
+	vec3_t fwd, right, up;
+
+	AngleVectors( args->angles, fwd, right, up );
+	VectorMA( args->origin, 40.0f, fwd, out );
+	out[2] += 24.0f;
+}
+
 // Medic (events/medic.sc): iparam1 1 is a heal, a green burst at the target; 2 is
 // poison, a violet burst. A self heal sends the shooter's own origin.
 void EV_SGTC_Medic( struct event_args_s *args )
@@ -1388,7 +1419,10 @@ void EV_SGTC_Medic( struct event_args_s *args )
 	int mdl;
 
 	VectorCopy( args->origin, origin );
-	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/steam1.spr" );
+	if( args->iparam1 == 3 )	// self heal
+		SGTC_ViewPuffOrigin( args, origin );
+	// Heals use the green shield glow; steam1 is blue, so a tint could not make it green.
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( args->iparam1 == 2 ? "sprites/steam1.spr" : "sprites/shieldglow.spr" );
 	if( mdl <= 0 )
 		return;
 
@@ -1405,7 +1439,9 @@ void EV_SGTC_GoaRegen( struct event_args_s *args )
 	int mdl;
 
 	VectorCopy( args->origin, origin );
-	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/steam1.spr" );
+	if( args->iparam1 == 1 )	// the shooter
+		SGTC_ViewPuffOrigin( args, origin );
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/shieldglow.spr" );
 	if( mdl > 0 )
 		SGTC_PuffBurst( origin, mdl, 120.0f, 255.0f, 150.0f, 28.0f, 5 );
 }
@@ -1418,9 +1454,28 @@ void EV_SGTC_Zat( struct event_args_s *args )
 
 }
 
+// Diagnostic: with sgtc_fxlog 1 every SGTC event prints one SGTCFX line when the
+// client receives it, so a playtest can show which handlers ran. Each event is
+// reached through a trampoline that logs before calling the handler.
+static cvar_t *s_pSgtcFxLog = NULL;
+
+static void SGTC_FxLog( const char *pszEvent, struct event_args_s *args )
+{
+	if( !s_pSgtcFxLog || s_pSgtcFxLog->value <= 0.0f )
+		return;
+	gEngfuncs.Con_Printf( "SGTCFX %s idx=%d origin=%.0f,%.0f,%.0f f1=%.2f i1=%d\n",
+		pszEvent, args->entindex, args->origin[0], args->origin[1], args->origin[2],
+		args->fparam1, args->iparam1 );
+}
+
+#define X( fn, script ) static void SGTC_TR_##fn( struct event_args_s *args ) { SGTC_FxLog( script, args ); fn( args ); }
+SGTC_EV_LIST
+#undef X
+
 void SGTC_ClientProtocol_HookEvents( void )
 {
-#define X( fn, script ) gEngfuncs.pfnHookEvent( script, fn );
+	s_pSgtcFxLog = gEngfuncs.pfnRegisterVariable( "sgtc_fxlog", "0", 0 );
+#define X( fn, script ) gEngfuncs.pfnHookEvent( script, SGTC_TR_##fn );
 SGTC_EV_LIST
 #undef X
 }
@@ -1460,6 +1515,7 @@ static const char *const s_sgtcClientSprites[] =
 	"sprites/handtir.spr",
 	"sprites/lazer.spr",
 	"sprites/lazerdot.spr",
+	"sprites/shieldglow.spr",
 	"sprites/Muz1.spr",
 	"sprites/rain.spr",
 	"sprites/snow.spr",

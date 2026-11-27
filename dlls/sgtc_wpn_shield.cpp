@@ -36,6 +36,7 @@ void CShieldGun::Precache( void )
 	PRECACHE_MODEL( "models/w_shield.mdl" );
 	PRECACHE_MODEL( "models/v_shield.mdl" );
 	PRECACHE_MODEL( "models/p_shield.mdl" );
+	PRECACHE_SOUND( "weapons/P90recharge.wav" );	// raise cue, played by events/shield.sc
 
 	s_usShieldFire = PRECACHE_EVENT( 1, "events/shield.sc" );
 }

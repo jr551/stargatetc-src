@@ -27,14 +27,14 @@ void CMedicxgoa::Spawn( void )
 	FallInit();
 }
 
-// events/goaregen.sc: a green regen puff where the regen lands, on the healed
-// player or, if there is none, on the shooter.
+// events/goaregen.sc: a green regen puff where the regen lands. iparam1 1 means
+// the shooter (drawn in front of the view), 0 means the healed player.
 static unsigned short s_usGoaRegenFx = 0;
-static void SGTC_GoaRegenFx( CBasePlayer *pPlayer, const Vector &vecAt )
+static void SGTC_GoaRegenFx( CBasePlayer *pPlayer, const Vector &vecAt, int iSelf )
 {
 	float origin[3] = { vecAt.x, vecAt.y, vecAt.z };
 	PLAYBACK_EVENT_FULL( SGTC_EVENT_FLAGS, pPlayer->edict(), s_usGoaRegenFx,
-		0.0, origin, (float *)&g_vecZero, 0.0f, 0.0f, 0, 0, 0, 0 );
+		0.0, origin, (float *)&g_vecZero, 0.0f, 0.0f, iSelf, 0, 0, 0 );
 }
 
 void CMedicxgoa::Precache( void )
@@ -101,7 +101,8 @@ void CMedicxgoa::PrimaryAttack( void )	// ref @0x1069f4
 	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_WEAPON, "weapons/goaregen.wav", 1.0, ATTN_NORM );
 
 	CBaseEntity *pHit = CBaseEntity::Instance( tr.pHit );
-	SGTC_GoaRegenFx( m_pPlayer, ( pHit && pHit->IsPlayer() ) ? pHit->pev->origin : m_pPlayer->pev->origin );
+	const BOOL bOnTarget = ( pHit && pHit->IsPlayer() ) ? TRUE : FALSE;
+	SGTC_GoaRegenFx( m_pPlayer, bOnTarget ? pHit->pev->origin : m_pPlayer->pev->origin, bOnTarget ? 0 : 1 );
 	if( pHit && pHit->IsPlayer() )
 	{
 		CBasePlayer *pTarget = (CBasePlayer *)pHit;

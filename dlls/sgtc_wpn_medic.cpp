@@ -23,7 +23,7 @@ void CMedicx::Spawn( void )
 }
 
 // events/medic.sc: iparam1 1 is a heal (a green puff at the target), 2 is poison
-// (violet). A self heal sends the shooter's own origin.
+// (violet), 3 is a self heal (green, drawn in front of the shooter's view).
 static unsigned short s_usMedicFx = 0;
 static void SGTC_MedicFx( CBasePlayer *pPlayer, const Vector &vecAt, int iKind )
 {
@@ -142,7 +142,7 @@ void CMedicx::SecondaryAttack( void )	// ref @0x10c17a
 
 	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_WEAPON, "weapons/medic.wav", 1.0f, 0.8f );
 	m_pPlayer->TakeHealth( (float)iHeal, DMG_GENERIC );
-	SGTC_MedicFx( m_pPlayer, m_pPlayer->pev->origin, 1 );
+	SGTC_MedicFx( m_pPlayer, m_pPlayer->pev->origin, 3 );
 	m_pPlayer->m_iStamina = 100;
 	m_pPlayer->SGTC_UpdateStamina();
 	m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType] -= iHeal;
