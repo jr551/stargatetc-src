@@ -37,17 +37,17 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 
 | Weapon (class) | Primary: receipt | Primary: on screen | Secondary: receipt | Secondary: on screen | Notes |
 |---|---|---|---|---|---|
-| `weapon_m16` (CM16) | `m16.sc` ×3 | M16 held with scope; no flash in frame. The earlier verify run showed no wash on the near rock | Zoom; no event by design | Zoomed view, scope visible | Muzzle light radius 32 (see commit 37e9a4f) |
+| `weapon_m16` (CM16) | `m16.sc` ×3; ×5 in the flash run | M16 held with scope; a warm tint on the near rock in the first frame (`m16flash-0`), no distinct flash sprite | Zoom; no event by design | Zoomed view, scope visible | Muzzle light radius 32 (see commit 37e9a4f) |
 | `weapon_p90` (CP90) | `p90.sc` ×5 | Held; no flash in frame | Silencer toggle and FOV; no event by design | Held | Silenced shot: `p90l.sc` ×1 (extra run). The silencer toggle is silent |
 | `weapon_psg1` (CPsg1) | `psg1.sc` ×1 | Held; no flash in frame | Zoom stages; no event by design | Not checked | |
 | `weapon_m92s` (CM92s, Eagle) | `eagle.sc` ×3 | Held; no flash in frame | None | — | |
-| `weapon_usas` (CUsas) | `usas.sc` ×3 | Held; no flash in frame | None | — | Client draws 8 pellets at 1024 units, matching the server (commit 880a52c) |
+| `weapon_usas` (CUsas) | `usas.sc` ×3; ×5 in the flash run | Muzzle flash visible at the first frame after the shot (`usasflash-0`); the flash shows on the far rock in `usasdecal-1`. Pellet decals not clearly visible | None | — | Client draws 8 pellets at 1024 units, matching the server (commit 880a52c) |
 | `weapon_spas` (CShotgun, stock) | `spas.sc` and `spas2.sc` ×1 | Held; no pellet decals in frame | Stock secondary is empty | — | Client draws 8 pellets at 2048 units (commit 880a52c). Stock class |
 | `weapon_mp5` (CMP5, stock) | None; stock `mp5.sc` is not logged | Held | Dry-fire click added (approved stock edit, `4596d74`); no projectile or ammo, as the reference | Held | Click not heard (`-nosound`) |
-| `weapon_reetou` (CReetou) | `reetou.sc` ×1 | Held; no projectile in frame | `reetou2.sc` ×1 | Held; no effect in frame | |
+| `weapon_reetou` (CReetou) | `reetou.sc` ×1 | The projectile is in flight as a cyan ball ahead of the view (`reetouflight-0`) | `reetou2.sc` ×1 | Held; no effect in frame | |
 | `weapon_zat` (CZat) | `zata.sc` ×1; charged `zatb.sc` ×1 (extra run) | Held; no beam in frame | None | — | Zat wave sprite missing |
 | `weapon_zatarc` (CZatarc) | `zatarc.sc` ×1 | Normal on the r20 build; the impact flare still shows | Zoom; no event by design | Not checked | The tint was the full-alpha `Muz1` sprite at close hits (bisected). Now drawn only for hits beyond 300 units (`ff34e5c`). Before `zatarc.png` (r16), after `zatarc-fix.png` (r20) |
-| `weapon_tacgun` (CTacgun) | `tac.sc` ×1 | Held; no laser dot in frame | HUD info cycle and `tacact.wav`; no event by design | Held; HUD change not confirmed | |
+| `weapon_tacgun` (CTacgun) | `tac.sc` ×1, ×2 in the dot run | A small red dot at the aim point on the hit (`tacdot-1`); the laser beam itself is not in frame | HUD info cycle and `tacact.wav`; no event by design | Held; HUD change not confirmed | |
 | `weapon_main` (CMainDieu, Energie) | `main.sc` ×1, `mains.sc` ×1 (stop) | Held; beam streak visible from the device | `main2.sc` ×1 | Hand only; no beam in frame | Live beam from an earlier commit (29e11d8) |
 | `weapon_glstaff` (CBigLanceJaffa) | `biglance.sc` ×1 | Washed white and pink on r16 and r17 from the bolt's light. Normal on r19 (frame checked) | None | — | Light removed in `aa3e9da`; glow sprite kept. Before `glstaff.png` (r16), after `glstaff-nodl-0.png` (r19) |
 | `weapon_lance` (CLanceJaffa) | `lance.sc` ×1 | Held; bolt trail visible | `lance2.sc` ×1 | Held; no bolt in frame | |
@@ -66,8 +66,8 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_narcogrenade` | r16 sweep: none. Same release path; not run on r17 | Canister held | None | — | |
 | `weapon_nervegrenade` | r16 sweep: none. Same release path; not run on r17 | Canister held | None | — | |
 | `weapon_smokegrenade` | r16 sweep: none. Same release path; not run on r17 | Canister held | None | — | |
-| `weapon_medic` (CMedicx) | None; heal and poison need a player target in the crosshair | Medic held with the red hurt overlay from the test | `medic.sc` ×1 (`i1=3`, self heal) | Red overlay; no green puff in frame | Self-heal puff drawn in front of the view (source) |
-| `weapon_goaregen` (CMedicxgoa) | `goaregen.sc` ×1 (`i1=1`, shooter; no target) | Device held; no puff in frame | None | — | Target heal (`i1=0`) not captured |
+| `weapon_medic` (CMedicx) | None; heal and poison need a player target in the crosshair | Medic held with the red hurt overlay from the test | `medic.sc` ×1 (`i1=3`, self heal) | Red overlay; the device is held and no green puff is in frame (`medicpuff-1`) | Self-heal puff drawn in front of the view (source) |
+| `weapon_goaregen` (CMedicxgoa) | `goaregen.sc` ×1 (`i1=1`, shooter; no target) | Device held with a small orange glow at the palm (`goapuff-0`); no green puff in frame | None | — | Target heal (`i1=0`) not captured |
 | `weapon_9mmAR` (alias of CMP5) | As `weapon_mp5` | — | — | — | Same class as the MP5 row |
 | `weapon_9mmhandgun` (SP shim → CM92s) | `eagle.sc` ×3 (`sp-9mmhandgun`) | Not checked | None | — | Single-player only |
 | `weapon_crossbow` (SP shim → CPsg1) | `psg1.sc` ×1 | Not checked | None | — | Single-player only |
