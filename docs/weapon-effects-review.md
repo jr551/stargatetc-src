@@ -7,7 +7,7 @@ Branch `goal/weapon-effects-feel`, on top of `716dc00`. Scope: every weapon clas
 - **Server, all MP arsenal weapons.** `wepfireall` on a dedicated server (`sg_nox`) gives each weapon, fires its primary, and fires its secondary where the class has one, logging each step. Sweep build: 38 classes registered, 31 given, 31 primaries fired, 11 secondaries fired, 0 retries.
 - **Client, one GUI run per weapon.** Each run loads `sg_nox`, refills stamina, gives the weapon, sets its ammo to 5, fires the primary (or holds the secondary), and takes a screenshot 3 frames after the trigger. `sgtc_fxlog 1` prints one `SGTCFX <event> idx= origin= f1= i1=` line when each client event arrives. A receipt means the client handler ran.
 - **Extra runs** for cases the sweep does not reach: the silenced P90, the charged Zat shot, medic self-heal, the larve detonation, the six shims, the gas release (three runs), and glstaff, Batsup and the satchel shim after the later changes.
-- **Builds.** The sweep and the extra runs used r16 (`hl.so` md5 `1027e860…`, `client.so` md5 `3482aee5…`). The gas, glstaff and Batsup-second-swing runs used r17 (`hl.so` md5 `cc9efb1f…`). The satchel shim and the bolt-light removal were checked on r18 and r19 builds, on glstaff and the satchel shim only. The zatarc flash gate and the colormap test token are on r20.
+- **Builds.** The sweep and the extra runs used r16 (`hl.so` md5 `1027e860…`, `client.so` md5 `3482aee5…`). The gas, glstaff and Batsup-second-swing runs used r17 (`hl.so` md5 `cc9efb1f…`). The satchel shim and the bolt-light removal were checked on r18 and r19 builds, on glstaff and the satchel shim only. The zatarc flash gate and the colormap test token are on r20. The MP5 click and the entity-count checks are on the later build.
 - **Sound was not heard.** The runs used `-nosound`. Where the code plays a sound, the file was checked on disk. Nothing below claims a sound was heard.
 - **Visible effects** come from single screenshot frames. "Not in frame" means the frame did not show the effect; it does not mean the effect is absent.
 - **Evidence files** are in the test scratch folder, not the repo: run logs `one-<tag>.clean`, screenshots `one-shots/<tag>.png`, and the server log `dedi-final3.log`.
@@ -43,7 +43,7 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_m92s` (CM92s, Eagle) | `eagle.sc` ×3 | Held; no flash in frame | None | — | |
 | `weapon_usas` (CUsas) | `usas.sc` ×3 | Held; no flash in frame | None | — | Client draws 8 pellets at 1024 units, matching the server (commit 880a52c) |
 | `weapon_spas` (CShotgun, stock) | `spas.sc` and `spas2.sc` ×1 | Held; no pellet decals in frame | Stock secondary is empty | — | Client draws 8 pellets at 2048 units (commit 880a52c). Stock class |
-| `weapon_mp5` (CMP5, stock) | None; stock `mp5.sc` is not logged | Held | Stock cooldown-only stub; no event (`mp5-sec`) | Held | Needs a decision; see Decisions |
+| `weapon_mp5` (CMP5, stock) | None; stock `mp5.sc` is not logged | Held | Dry-fire click added (approved stock edit, `4596d74`); no projectile or ammo, as the reference | Held | Click not heard (`-nosound`) |
 | `weapon_reetou` (CReetou) | `reetou.sc` ×1 | Held; no projectile in frame | `reetou2.sc` ×1 | Held; no effect in frame | |
 | `weapon_zat` (CZat) | `zata.sc` ×1; charged `zatb.sc` ×1 (extra run) | Held; no beam in frame | None | — | Zat wave sprite missing |
 | `weapon_zatarc` (CZatarc) | `zatarc.sc` ×1 | Normal on the r20 build; the impact flare still shows | Zoom; no event by design | Not checked | The tint was the full-alpha `Muz1` sprite at close hits (bisected). Now drawn only for hits beyond 300 units (`ff34e5c`) |
@@ -51,14 +51,14 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_main` (CMainDieu, Energie) | `main.sc` ×1, `mains.sc` ×1 (stop) | Held; beam streak visible from the device | `main2.sc` ×1 | Hand only; no beam in frame | Live beam from an earlier commit (29e11d8) |
 | `weapon_glstaff` (CBigLanceJaffa) | `biglance.sc` ×1 | Washed white and pink on r16 and r17 from the bolt's light. Normal on r19 (frame checked) | None | — | Light removed in `aa3e9da`; glow sprite kept |
 | `weapon_lance` (CLanceJaffa) | `lance.sc` ×1 | Held; bolt trail visible | `lance2.sc` ×1 | Held; no bolt in frame | |
-| `weapon_larve` (CLarve) | `larve.sc` ×1 | Larve held | Detonate owned larves; no event by design | Wall close-up; detonation not in frame | |
-| `weapon_invis` (CInvis) | `invis.sc` ×1 | Device held | Shield wall: no event in the harness | Held; no wall | Did not fire in the harness; cause not checked |
+| `weapon_larve` (CLarve) | `larve.sc` ×1 | Larve held | Detonate owned larves; no event by design | The detonation shows as a grey concussion fade on a player within 128 units (`larvevis-3`) | The blast itself has sound and damage only |
+| `weapon_invis` (CInvis) | `invis.sc` ×1 | Device held | Shield wall: no event by design; with `colormap9_1` it adds one entity and a whole-view yellow-green shield tint | Tint in `invisinfo-0` | Gate needs colormap bit 9 (test token `colormap9_1`, `e16e05c`) |
 | `weapon_shield` (CShieldGun) | `shield.sc` ×1 | Viewmodel missing (asset); small coloured glow at crosshair; green wall overlay not in frame | None | — | Raise sound and glow from source. Missing assets |
-| `weapon_batsup` (CBatonSupplice) | `batsup.sc` ×1 | Melee flare on the rock ahead | None | — | Follow-up swing `batsup2.sc` not captured in a two-swing run |
+| `weapon_batsup` (CBatonSupplice) | `batsup.sc` ×1; follow-up `batsup2.sc` ×1 with 36- and 40-frame gaps | Melee flare on the rock ahead | None | — | The follow-up needs the second swing 0.5–0.75 s after the first; 6, 25 and 50 frames miss it |
 | `weapon_coujaf` (CCoujaf) | `coujaf.sc` ×1 (swing and miss) | Blade mid-swing; no hit in frame | None | — | Miss now sends the event (commit 7323428). `nightstrike.wav` missing |
 | `weapon_couteau` (CCouteau) | `couteau.sc` ×1 and `throw.sc` ×1 (`i1=3`) | Knife held | `throw.sc` ×1 (`i1=3`) | Knife held; throw not in frame | |
 | `weapon_gacgoa` (CGrenadeChoc) | `throw.sc` ×1 (`i1=10`) | Device held; throw not in frame | `throw.sc` ×1 (`i1=10`) | Held | |
-| `weapon_flashbang` (CFlashBang) | `throw.sc` ×1 (`i1=0`) | Held; detonation not in frame | None | — | `i1=0` is the flashbang's id by design. Detonation is the stock flash path (`CGrenade::ShootFlash`); `flashbang.wav` missing, so the detonation sound is silent |
+| `weapon_flashbang` (CFlashBang) | `throw.sc` ×1 (`i1=0`) | Held; the detonation shows as a grey-white flash that fades (`flashvis-4`, `flashvis-5`) | None | — | `i1=0` is the flashbang's id by design. Detonation is the stock flash path (`CGrenade::ShootFlash`); `flashbang.wav` missing, so the detonation sound is silent |
 | `weapon_handgrenade` (CHandGrenade, stock) | `throw.sc` ×1 (`i1=12`) from the ammo watch | Grenade held | None | — | Stock class, not edited |
 | `weapon_c4` (CSgtcC4) | `throw.sc` ×1 (`i1=14`) | Two C4 units; a charge is on the ground ahead | Stock detonate; not run | — | Subclass of the stock satchel |
 | `weapon_mine` (CTripmine, stock) | None; stock `tripfire.sc` is not logged | Mine held; placement not captured | None | — | Stock class, not edited |
@@ -90,14 +90,14 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 
 ## Decisions and open items
 
-1. **MP5 secondary.** The stock `mp5.cpp` secondary only starts a cooldown and fires nothing. Fixing it means replacing the class, as C4 does. But the stock file also links `weapon_mp5`, so the SGTC link cannot be added without editing `dlls/mp5.cpp`. This needs your go-ahead to edit a stock file.
-2. **Missing assets** (table above). These need the content files, or a decision to substitute existing ones.
+1. **MP5 secondary.** Approved: the stock edit is `4596d74`. The reference secondary is a cooldown-only stub, so it gets the dry-fire click only, with no projectile and no ammo.
+2. **Missing assets** (table above). Decided: wait for the asset set. The shield viewmodel and worldmodel, the zat wave sprite, and the coujaf, flashbang and HUD timer sounds stay blocked until then.
 3. **Zatarc whole-view tint.** Fixed on r20 (see the table). The source was the full-alpha `Muz1` sprite at close hits.
-4. **Flashbang detonation.** Not captured. Looking down before the throw (`+lookdown`), the flashbang is in flight in frames 1–3 at 30-frame intervals, and no detonation shows. The detonation goes through the stock flash path.
-5. **Gas cloud and detonation.** Not confirmed. Looking down before the throw, the canister is in flight in frames 1–2 and gone by frame 3. The whole view then takes a green-yellow cast, consistent with the cloud reaching the camera, but no cloud is confirmed. The detonation sound `gasflow.wav` is present on disk.
-6. **Batsup follow-up swing** (`batsup2.sc`) is not captured. Two-swing runs with 6-, 25- and 50-frame gaps fire `batsup.sc` only.
-7. **Invis shield wall.** The gate needs colormap bit 9, which the test-only token `colormap9_1` now sets (`e16e05c`). With it, the secondary plays the load sound and sets the wall flag after 0.5 s, with no event by design. No wall is visible in the frame, so its visible effect is not confirmed.
-8. **Larve detonation.** Not confirmed. Frames after the detonation show a small green marker at the edge of the view, which may be the detonation.
+4. **Flashbang detonation.** Confirmed. The flashbang leaves the entity list about 3.4 s after the throw, and the view goes grey-white and fades (`flashvis-4`, `flashvis-5`).
+5. **Gas cloud and detonation.** Not confirmed. Looking down before the throw, the canister is in flight in frames 1–2 and gone by frame 3. The whole view then takes a green-yellow cast, consistent with the cloud reaching the camera, but no cloud is confirmed. The detonation sound `gasflow.wav` is present on disk. The entity count does not change at detonation, so the cloud may reuse the grenade's entity, and the green frames look like the normal look-down view.
+6. **Batsup follow-up swing** (`batsup2.sc`) confirmed with 36- and 40-frame gaps. The window is about 0.5–0.75 s after the first swing; 6, 25 and 50 frames miss it.
+7. **Invis shield wall.** Confirmed. The gate needs colormap bit 9, which the test-only token `colormap9_1` sets (`e16e05c`). The secondary then adds one entity (the wall) and the view takes a whole-view yellow-green shield tint (`invisinfo-0`). The load sound was not heard.
+8. **Larve detonation.** The blast itself has sound and damage only. The visible effect is the concussion fade: the view goes grey for several frames when the blast hits a player within 128 units (`larvevis-3`). In the harness the player is on team 0, so the larve's enemy search does not exclude its owner; with teams that check applies.
 9. **P90 silencer toggle** is silent. A click would be a small addition.
 
 ## Commits on this branch since `716dc00`
@@ -114,3 +114,4 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `fd44f29` Give the single-player satchel shim the C4 throw cue
 - `ff34e5c` Draw the zatarc hit flash only for far hits
 - `e16e05c` Add a test token that sets colormap bit 9 for the invis shield gate
+- `4596d74` Give the MP5 secondary a dry-fire click (approved stock edit)
