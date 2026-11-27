@@ -20,10 +20,12 @@
 // deathmatch 0) and a one-client server, same gate as sp_shims.cpp.  New cvar
 // sgtc_sp_enemies (default 1) switches the substitution off for parity tests.
 //
-// Jaffa model: models/jaffa.mdl (82 sequences, grunt-style animation labels:
-// walk1/run/idle1/combatidle/standing_mp5/dieback1) with external textures in
-// the companion jaffaT.mdl (engine loads it when numtextures == 0; see
-// xashsrc engine/common/mod_studio.c:953).  Ranged attack reuses CZatProj so
+// Jaffa model: models/player/goauld3/goauld3.mdl, the mod's own Jaffa class body
+// (sgtc_rules.cpp maps SGTC_CLASS_JAFFA to "goauld3").  It ships with the 85
+// player-style sequences idle, run, walk, aim_1, ref_aim_mp5, ref_shoot_crowbar,
+// die_backwards1 and die_forwards.  The old models/jaffa.mdl is NOT in the
+// shipped package: SET_MODEL failed and the Jaffa spawned invisible.
+// Ranged attack reuses CZatProj so
 // the SP Jaffa shoots the same visible zat wave bolt the player's zat uses.
 
 #include "extdll.h"
@@ -56,7 +58,7 @@ void SGTC_SP_EnemiesInit( void )
 // ---------------------------------------------------------------------------
 // Jaffa monster
 // ---------------------------------------------------------------------------
-#define JAFFA_MODEL			"models/jaffa.mdl"
+#define JAFFA_MODEL			"models/player/goauld3/goauld3.mdl"
 #define JAFFA_HP_NORMAL		60.0f
 #define JAFFA_HP_BIG		320.0f
 #define JAFFA_SCALE_BIG		1.5f
@@ -164,7 +166,7 @@ void CSgtcJaffa::Spawn( void )
 	pev->origin.z += 1.0f;
 	DROP_TO_FLOOR( ENT( pev ) );
 
-	SetAnim( "idle1", 11, 1.0f );
+	SetAnim( "idle", 1, 1.0f );
 
 	SetThink( &CSgtcJaffa::JaffaThink );
 	pev->nextthink = gpGlobals->time + 0.1f;
@@ -179,9 +181,9 @@ void CSgtcJaffa::Killed( entvars_t *pevAttacker, int iGib )
 	pev->deadflag = DEAD_DYING;
 	pev->velocity = Vector( 0, 0, 0 );
 	if( RANDOM_LONG( 0, 1 ) == 0 )
-		SetAnim( "dieback1", 29, 1.0f );
+		SetAnim( "die_backwards1", 19, 1.0f );
 	else
-		SetAnim( "dieforward", 30, 1.0f );
+		SetAnim( "die_forwards", 21, 1.0f );
 	m_flRemoveTime = gpGlobals->time + 2.5f;
 }
 
@@ -217,7 +219,7 @@ void CSgtcJaffa::MeleeAttack( CBaseEntity *pTarget )
 	TraceResult tr;
 	UTIL_TraceLine( vecSrc, vecEnd, dont_ignore_monsters, ENT( pev ), &tr );
 
-	SetAnim( "frontkick", 14, 1.0f );
+	SetAnim( "ref_shoot_crowbar", 26, 1.0f );
 	if( tr.pHit && CBaseEntity::Instance( tr.pHit ) == pTarget )
 	{
 		ClearMultiDamage();
@@ -246,7 +248,7 @@ void CSgtcJaffa::RangedAttack( CBaseEntity *pTarget )
 		// out of range on the shipped model (engine warning spam), so use 0.
 		pProj->pev->sequence = 0;
 	}
-	SetAnim( "standing_mp5", 44, 1.0f );
+	SetAnim( "ref_aim_mp5", 49, 1.0f );
 	EMIT_SOUND( ENT( pev ), CHAN_WEAPON, "weapons/electro4.wav", 0.8f, ATTN_NORM );
 	m_flNextRanged = gpGlobals->time + JAFFA_RANGED_DELAY;
 }
@@ -275,7 +277,7 @@ void CSgtcJaffa::JaffaThink( void )
 	if( !pTarget )
 	{
 		pev->velocity = Vector( 0, 0, 0 );
-		SetAnim( "idle1", 11, 1.0f );
+		SetAnim( "idle", 1, 1.0f );
 		pev->nextthink = gpGlobals->time + 0.25f;
 		return;
 	}
@@ -317,7 +319,7 @@ void CSgtcJaffa::JaffaThink( void )
 		}
 		m_vecLastOrigin = pev->origin;
 		pev->velocity = vecMove * flSpeed;
-		SetAnim( "run", 1, 1.0f );
+		SetAnim( "run", 12, 1.0f );
 	}
 	else
 	{
@@ -332,7 +334,7 @@ void CSgtcJaffa::JaffaThink( void )
 		}
 		else
 		{
-			SetAnim( "combatidle", 13, 1.0f );
+			SetAnim( "aim_1", 16, 1.0f );
 		}
 	}
 
