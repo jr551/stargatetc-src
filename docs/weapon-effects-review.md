@@ -93,9 +93,9 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 1. **MP5 secondary.** The stock `mp5.cpp` secondary only starts a cooldown and fires nothing. Fixing it means replacing the class, as C4 does. But the stock file also links `weapon_mp5`, so the SGTC link cannot be added without editing `dlls/mp5.cpp`. This needs your go-ahead to edit a stock file.
 2. **Missing assets** (table above). These need the content files, or a decision to substitute existing ones.
 3. **Zatarc whole-view tint.** Open. The source is not identified. The zatarc code has a dynamic light (`dlls/sgtc_wpn_zatarc.cpp:208`), which is the first thing to check, the same way as the glstaff bolt.
-4. **Flashbang detonation.** Not captured. The detonation goes through the stock flash path, so a capture is needed before any change.
-5. **Gas cloud and detonation.** Not captured in any frame. The detonation sound `gasflow.wav` is present on disk.
-6. **Batsup follow-up swing** (`batsup2.sc`) was not captured in the two-swing run.
+4. **Flashbang detonation.** Not captured. Six frames at 30-frame intervals on r19: the throw cue fires (`throw.sc`), but the thrown flashbang leaves the view and the next one stays in hand. The detonation goes through the stock flash path, so a capture needs the camera aimed at the landing spot.
+5. **Gas cloud and detonation.** Not captured. Six frames at 50-frame intervals on r19: the release cue fires (`throw.sc`, `i1=29`), but no cloud is in view. The detonation sound `gasflow.wav` is present on disk.
+6. **Batsup follow-up swing** (`batsup2.sc`) is not captured. Two-swing runs with 6- and 25-frame gaps fire `batsup.sc` only.
 7. **Invis shield wall** did not fire in the harness. Its secondary plays `shield.sc` when it works, and the gate needs a test setup.
 8. **Larve detonation** was not captured in a frame.
 9. **P90 silencer toggle** is silent. A click would be a small addition.
