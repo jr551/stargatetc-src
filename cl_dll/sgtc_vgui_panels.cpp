@@ -753,6 +753,18 @@ void CSgtcBriefingPanel::Refresh( void )
 		free( pszModeText );
 		gEngfuncs.COM_FreeFile( pfile );
 	}
+	else
+	{
+		// No briefing file (sg_world1 has none): the mode line still goes above
+		// the localised "#objectif_manquant" text.
+		char *pszModeText = SgtcBriefing_ModeText( SgtcBriefing_ModeId(),
+			L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#objectif_manquant" ) ) );
+		if ( pszModeText )
+		{
+			m_pBriefing->setText( pszModeText );
+			free( pszModeText );
+		}
+	}
 	m_iBriefingMode = SgtcBriefing_ModeId();
 	m_bBriefingLoaded = true;
 

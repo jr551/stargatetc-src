@@ -36,6 +36,7 @@
 #include "player.h"
 #include "weapons.h"
 #include "sgtc_misc.h"
+#include <math.h>
 
 // ---------------------------------------------------------------------------
 // Cvar / gate
@@ -86,12 +87,16 @@ public:
 	void FindPlayer( CBaseEntity **ppPlayer, float *pDist );
 	void MeleeAttack( CBaseEntity *pTarget );
 	void RangedAttack( CBaseEntity *pTarget );
+	Vector FindClearHeading( const Vector &vecWish );
 
 	float m_flNextRanged;
 	float m_flNextMelee;
 	float m_flRemoveTime;
 	float m_flStuckTime;
 	Vector m_vecLastOrigin;
+	float m_flProgressCheck;		// next time chase progress is measured
+	Vector m_vecProgressOrigin;		// position at the last measurement
+	Vector m_vecSteer;				// clear heading taken while blocked
 };
 
 LINK_ENTITY_TO_CLASS( monster_sgtc_jaffa, CSgtcJaffa );
@@ -157,6 +162,9 @@ void CSgtcJaffa::Spawn( void )
 	m_flRemoveTime = 0.0f;
 	m_flStuckTime = 0.0f;
 	m_vecLastOrigin = pev->origin;
+	m_flProgressCheck = gpGlobals->time + 0.5f;
+	m_vecProgressOrigin = pev->origin;
+	m_vecSteer = Vector( 0, 0, 0 );
 
 	InitBoneControllers();
 	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
@@ -253,6 +261,33 @@ void CSgtcJaffa::RangedAttack( CBaseEntity *pTarget )
 	m_flNextRanged = gpGlobals->time + JAFFA_RANGED_DELAY;
 }
 
+// Horizontal heading near vecWish that a 96-unit chest-height trace can take.
+// Tries the wish direction, then 45, 90, 135 and 180 degrees to each side, and
+// falls back to the clearest one when every direction is blocked.
+Vector CSgtcJaffa::FindClearHeading( const Vector &vecWish )
+{
+	static const float flAngles[] = { 0.0f, 45.0f, -45.0f, 90.0f, -90.0f, 135.0f, -135.0f, 180.0f };
+	const Vector vecChest = pev->origin + Vector( 0, 0, 24 );
+	Vector vecBest = vecWish;
+	float flBestFrac = -1.0f;
+	for( int i = 0; i < (int)( sizeof( flAngles ) / sizeof( flAngles[0] ) ); ++i )
+	{
+		const float flRad = flAngles[i] * ( 3.14159265f / 180.0f );
+		const Vector vecTry( vecWish.x * (float)cos( flRad ) - vecWish.y * (float)sin( flRad ),
+			vecWish.x * (float)sin( flRad ) + vecWish.y * (float)cos( flRad ), 0.0f );
+		TraceResult tr;
+		UTIL_TraceLine( vecChest, vecChest + vecTry * 96.0f, ignore_monsters, ENT( pev ), &tr );
+		if( tr.flFraction >= 0.99f )
+			return vecTry;
+		if( tr.flFraction > flBestFrac )
+		{
+			flBestFrac = tr.flFraction;
+			vecBest = vecTry;
+		}
+	}
+	return vecBest;
+}
+
 void CSgtcJaffa::JaffaThink( void )
 {
 	if( pev->deadflag != DEAD_NO )
@@ -308,16 +343,20 @@ void CSgtcJaffa::JaffaThink( void )
 			vecMove = vecMove.Normalize();
 
 		const float flSpeed = Variant() ? JAFFA_SPEED_BIG : JAFFA_SPEED_NORMAL;
-		if( ( pev->origin - m_vecLastOrigin ).Length() < 1.0f &&
-			gpGlobals->time > m_flNextRanged )
+		if( gpGlobals->time >= m_flProgressCheck )
 		{
-			m_flStuckTime = gpGlobals->time + 0.4f;
+			// blocked when the Jaffa has not moved 16 units in half a second:
+			// take a clear heading near the target direction for one second
+			if( ( pev->origin - m_vecProgressOrigin ).Length() < 16.0f )
+			{
+				m_flStuckTime = gpGlobals->time + 1.0f;
+				m_vecSteer = FindClearHeading( vecMove );
+			}
+			m_vecProgressOrigin = pev->origin;
+			m_flProgressCheck = gpGlobals->time + 0.5f;
 		}
 		if( m_flStuckTime > gpGlobals->time )
-		{
-			vecMove = Vector( -vecMove.y, vecMove.x, 0.0f );
-		}
-		m_vecLastOrigin = pev->origin;
+			vecMove = m_vecSteer;
 		pev->velocity = vecMove * flSpeed;
 		SetAnim( "run", 12, 1.0f );
 	}
