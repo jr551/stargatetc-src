@@ -516,6 +516,8 @@ private:
 	};
 
 	void WrapInto( const char *pszPara, int maxWide, std::vector<std::string> &out );
+	static bool IsRuleLine( const std::string &text );
+	std::string CutToWidth( const std::string &text, int maxWide );
 	int TextWide( const char *pszText );
 
 	vgui::Font	*m_pFont;
@@ -622,6 +624,31 @@ void CSgtcBriefingView::WrapInto( const char *pszPara, int maxWide, std::vector<
 	out.push_back( cur );
 }
 
+// A rule is a line of dashes only (the briefing's separators). Wrapping one
+// splits the dashes onto a second row, so it is cut to the width instead.
+bool CSgtcBriefingView::IsRuleLine( const std::string &text )
+{
+	if ( text.size() < 3 )
+		return false;
+	for ( size_t i = 0; i < text.size(); ++i )
+		if ( text[i] != '-' )
+			return false;
+	return true;
+}
+
+std::string CSgtcBriefingView::CutToWidth( const std::string &text, int maxWide )
+{
+	std::string out;
+	for ( size_t i = 0; i < text.size(); ++i )
+	{
+		std::string test = out + text[i];
+		if ( TextWide( test.c_str() ) > maxWide )
+			break;
+		out = test;
+	}
+	return out;
+}
+
 void CSgtcBriefingView::Layout( void )
 {
 	m_iViewWide = m_iScrollBarWide > 0 ? ( Panel::getWide() - m_iScrollBarWide ) : Panel::getWide();
@@ -643,6 +670,8 @@ void CSgtcBriefingView::Layout( void )
 		{
 			if ( para.empty() )
 				m_Lines.push_back( "" );
+			else if ( IsRuleLine( para ) )
+				m_Lines.push_back( CutToWidth( para, m_iViewWide ) );
 			else
 				WrapInto( para.c_str(), m_iViewWide, m_Lines );
 			para.clear();
@@ -826,7 +855,10 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	m_pOKButton = new CommandButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Ok" ) ),
 		iOkX, iOkY, iOkW, iOkH );
 	m_pOKButton->setParent( this );
-	m_pOKButton->setFont( pSchemes->getFont( hTitleScheme ) );
+	// Title font at 1024 and up, where it is legible. Below that the title scheme
+	// falls back to a font with no glyphs (the OK label vanished at 800x600), so the
+	// briefing body font is used there.
+	m_pOKButton->setFont( pSchemes->getFont( ScreenWidth >= 0x400 ? hTitleScheme : hBriefingText ) );
 	m_pOKButton->addActionSignal( new CSgtcHandler_DismissMenu() );
 
 	m_bBriefingLoaded = false;
