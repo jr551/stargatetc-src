@@ -647,6 +647,75 @@ void TeamFortressViewport::Initialize( void )
 }
 
 //-----------------------------------------------------------------------------
+// Command menu label width.
+// Labels are drawn in the CommandMenu Text font after a five-character key
+// prefix ("     " or "  N  "). On the 640 valve sheet the longest label is wider
+// than the CMENU_SIZE_X panel, so it was clipped ("CHANGE WEAPO"). The tree is
+// widened only when a label does not fit; the other tiers keep their layout.
+//-----------------------------------------------------------------------------
+static int CommandMenuTreeWidestLabel( CCommandMenu *pMenu )
+{
+	vgui::Font *pFont = App::getInstance()->getScheme()->getFont( Scheme::sf_primary3 );
+	int iWidest = 0;
+
+	if( !pFont || !pMenu )
+		return 0;
+
+	for( int i = 0; i < pMenu->GetNumButtons(); i++ )
+	{
+		CommandButton *pButton = pMenu->GetButton( i );
+		char szText[MAX_BUTTON_SIZE + 8];
+		int iWide = 0, iTall = 0;
+
+		if( !pButton )
+			continue;
+
+		snprintf( szText, sizeof( szText ), "     %s", pButton->GetMainText() );
+		pFont->getTextSize( szText, iWide, iTall );
+		if( iWide > iWidest )
+			iWidest = iWide;
+
+		if( pButton->GetSubMenu() )
+		{
+			const int iSub = CommandMenuTreeWidestLabel( pButton->GetSubMenu() );
+			if( iSub > iWidest )
+				iWidest = iSub;
+		}
+	}
+
+	return iWidest;
+}
+
+// Widens a menu and its buttons. A submenu is placed at its parent's x plus the
+// parent's width, so each level moves right by depth * delta to stay beside it.
+static void CommandMenuTreeWiden( CCommandMenu *pMenu, int iDepth, int iDelta, int iWide )
+{
+	int iX = 0, iY = 0, iW = 0, iH = 0;
+
+	if( !pMenu )
+		return;
+
+	pMenu->getPos( iX, iY );
+	pMenu->getSize( iW, iH );
+	pMenu->setPos( iX + iDepth * iDelta, iY );
+	pMenu->setSize( iWide, iH );
+
+	for( int i = 0; i < pMenu->GetNumButtons(); i++ )
+	{
+		CommandButton *pButton = pMenu->GetButton( i );
+		if( !pButton )
+			continue;
+
+		int iBW = 0, iBH = 0;
+		pButton->getSize( iBW, iBH );
+		pButton->setSize( iWide, iBH );
+
+		if( pButton->GetSubMenu() )
+			CommandMenuTreeWiden( pButton->GetSubMenu(), iDepth + 1, iDelta, iWide );
+	}
+}
+
+//-----------------------------------------------------------------------------
 // Purpose: Read the Command Menu structure from the txt file and create the menu.
 //			Returns Index of menu in m_pCommandMenus
 //-----------------------------------------------------------------------------
@@ -896,6 +965,18 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 		return newIndex;
 	}
 #endif
+
+	// Fit the tree to its widest label (only widens; see CommandMenuTreeWidestLabel)
+	if( m_pCommandMenus[newIndex] )
+	{
+		int iRootW = 0, iRootH = 0;
+		m_pCommandMenus[newIndex]->getSize( iRootW, iRootH );
+
+		const int iWidest = CommandMenuTreeWidestLabel( m_pCommandMenus[newIndex] );
+		const int iNeeded = iWidest + XRES( 8 );	// right margin after the text
+		if( iNeeded > iRootW )
+			CommandMenuTreeWiden( m_pCommandMenus[newIndex], 0, iNeeded - iRootW, iNeeded );
+	}
 
 	SetCurrentMenu( NULL );
 	SetCurrentCommandMenu( NULL );

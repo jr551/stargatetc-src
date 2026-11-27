@@ -203,6 +203,7 @@ public:
 	void UpdateSubMenus( int iAdjustment );
 	int GetPlayerClass() { return m_iPlayerClass; };
 	CCommandMenu *GetSubMenu() { return m_pSubMenu; };
+	const char *GetMainText( void ) { return m_sMainText; };
 
 	CCommandMenu *getParentMenu( void );
 	void setParentMenu( CCommandMenu *pParentMenu );
@@ -402,6 +403,7 @@ public:
 	int		 GetYOffset() { return m_iYOffset; };
 	int		 GetDirection() { return m_iDirection; };
 	int		 GetNumButtons() { return m_iButtons; };
+	CommandButton *GetButton( int i ) { return ( i >= 0 && i < m_iButtons ) ? m_aButtons[i] : NULL; };
 	CommandButton	*FindButtonWithSubmenu( CCommandMenu *pSubMenu );
 
 	void		 ClearButtonsOfArmedState( void );
