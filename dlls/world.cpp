@@ -34,6 +34,7 @@
 #include "gamerules.h"
 #include "teamplay_gamerules.h"
 #include "sgtc_gate_dlight.h"
+#include "sgtc_throwfx.h"
 
 extern CGraph WorldGraph;
 extern CSoundEnt *pSoundEnt;
@@ -492,6 +493,8 @@ void CWorld::Precache( void )
 	CVAR_SET_STRING( "sv_stepsize", "24" );
 #endif
 	CVAR_SET_STRING( "room_type", "0" );// clear DSP
+
+	SGTC_ThrowFxPrecache();	// every map: the throw event the handgrenade watch plays
 
 	// Set up game rules
 	if( g_pGameRules )
