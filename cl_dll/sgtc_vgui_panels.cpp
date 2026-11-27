@@ -503,6 +503,7 @@ public:
 	CSgtcBriefingView( int x, int y, int wide, int tall );
 
 	void SetStyle( vgui::Font *pFont, int r, int g, int b );
+	void SetTall( int tall );		// shorten/grow the view and re-lay out its text
 	void SetText( const char *pszText );
 	void Layout( void );		// rewrap at the current width and set the scroll range
 	void ScrollTo( int value );	// pixel offset of the text
@@ -624,6 +625,16 @@ void CSgtcBriefingView::WrapInto( const char *pszPara, int maxWide, std::vector<
 	out.push_back( cur );
 }
 
+void CSgtcBriefingView::SetTall( int tall )
+{
+	int x, y, wide, cur;
+	getBounds( x, y, wide, cur );
+	setBounds( x, y, wide, tall );
+	m_pScroll->setBounds( wide - m_iScrollBarWide, 0, m_iScrollBarWide, tall );
+	m_iViewTall = tall;
+	Layout();
+}
+
 // A rule is a line of dashes only (the briefing's separators). Wrapping one
 // splits the dashes onto a second row, so it is cut to the width instead.
 bool CSgtcBriefingView::IsRuleLine( const std::string &text )
@@ -739,6 +750,7 @@ public:
 
 private:
 	void Refresh( void );
+	void FitBriefingAboveOk( void );
 
 	CTransparentPanel *m_pWindow;
 	Label *m_pTitle;
@@ -848,18 +860,18 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	// OK button, sized in proportion to the briefing panel. The ref geometry
 	// (124x24 units, two low/wide variants) read as a thin strip under the frame.
 	const int iOkW = XRES( 200 );
-	const int iOkH = YRES( 24 );
+	const int iOkH = YRES( 28 );
 	const int iOkX = ScreenWidth / 2 - iOkW / 2;
 	const int iOkY = ScreenHeight - YRES( 40 ) - iOkH;
 
 	m_pOKButton = new CommandButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Ok" ) ),
 		iOkX, iOkY, iOkW, iOkH );
 	m_pOKButton->setParent( this );
-	// Title font at 1024 and up, where it is legible. Below that the title scheme
-	// falls back to a font with no glyphs (the OK label vanished at 800x600), so the
-	// briefing body font is used there.
-	m_pOKButton->setFont( pSchemes->getFont( ScreenWidth >= 0x400 ? hTitleScheme : hBriefingText ) );
+	// Body font at every size. The title scheme's font shows no label at 800x600 and
+	// at 1280x800 (the OK box rendered empty), while the body font renders everywhere.
+	m_pOKButton->setFont( pSchemes->getFont( hBriefingText ) );
 	m_pOKButton->addActionSignal( new CSgtcHandler_DismissMenu() );
+
 
 	m_bBriefingLoaded = false;
 
@@ -879,8 +891,38 @@ void CSgtcBriefingPanel::Reset( void )
 	m_bBriefingLoaded = false;
 }
 
+// The view's height is fixed in units that do not track the frame at every size.
+// At 640x480 its bottom ran under the OK button, so stop the view above it. Read
+// on Refresh, when the frame has been laid out (not in the constructor).
+void CSgtcBriefingPanel::FitBriefingAboveOk( void )
+{
+	// getAbsExtents is relative in this build, so walk the parents to get screen Y.
+	int iViewTop = 0, iOkTop = 0;
+	int vx, vy, vw, vh, ox, oy, ow, oh;
+	m_pBriefingView->getBounds( vx, vy, vw, vh );
+	m_pOKButton->getBounds( ox, oy, ow, oh );
+	iViewTop = vy;
+	for ( Panel *p = m_pBriefingView->getParent(); p; p = p->getParent() )
+	{
+		int px, py;
+		p->getPos( px, py );
+		iViewTop += py;
+	}
+	iOkTop = oy;
+	for ( Panel *p = m_pOKButton->getParent(); p; p = p->getParent() )
+	{
+		int px, py;
+		p->getPos( px, py );
+		iOkTop += py;
+	}
+	const int iMaxBottom = iOkTop - YRES( 4 );
+	if ( iViewTop + vh > iMaxBottom && iMaxBottom > iViewTop )
+		m_pBriefingView->SetTall( iMaxBottom - iViewTop );
+}
+
 void CSgtcBriefingPanel::Refresh( void )
 {
+	FitBriefingAboveOk();
 	// Server name arrives in the ServerName usermsg (viewport m_szServerName,
 	// MsgFunc_ServerName @0x1004a0a9); the ref fills the label from the same
 	// value (FUN_100404a0 "%s").
