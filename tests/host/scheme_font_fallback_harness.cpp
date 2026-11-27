@@ -249,6 +249,14 @@ int main( int argc, char **argv )
 			s_printedUnreadable ? "client logged the fallback" : "no fallback message" );
 	}
 
+	if( !s_corruptScheme )
+	{
+		// Real sheets, including the valve 640/800/1152 ones that are stored as
+		// uncompressed TGA: every sheet must load with no fallback message.
+		report( "real-sheets-load-no-fallback", s_printedUnreadable == 0,
+			s_printedUnreadable ? "a real sheet fell back to the system font" : "all sheets read" );
+	}
+
 	delete mgr;
 	printf( "SUMMARY %s (%d failure%s)\n", s_failures ? "FAIL" : "PASS",
 		s_failures, s_failures == 1 ? "" : "s" );

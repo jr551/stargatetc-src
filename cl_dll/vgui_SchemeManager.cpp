@@ -21,6 +21,7 @@
 #include "vgui_font_tiers.h"
 #include "cvardef.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 
@@ -313,6 +314,59 @@ static void Res_ApplyColor( byte colorArray[4], const char *pszName, const byte 
 {
 	SgtcResColor *pColor = Res_FindColor( pszName );
 	memcpy( colorArray, pColor ? pColor->rgba : pDefault, 4 );
+}
+
+//-----------------------------------------------------------------------------
+// The valve package ships its 640, 800 and 1152 VGUI font sheets as uncompressed
+// 32-bit TGA (image type 2). The sheet loader in freevgui reads only RLE (type
+// 10), so those sheets were rejected and the scheme drew empty boxes; on some
+// builds the same rejection crashed the client. Re-encode an uncompressed sheet
+// as literal-only RLE in memory, so the same art is what gets drawn.
+// Returns a malloc'd buffer (free with free()), or NULL when the input is not a
+// 32-bit uncompressed TGA.
+//-----------------------------------------------------------------------------
+static byte *Sgtc_SheetToRle( const byte *src, int srcLen, int *outLen )
+{
+	if( !src || srcLen < 18 )
+		return NULL;
+
+	const int idLen = src[0];
+	const int imageType = src[2];
+	const int width = src[12] | ( src[13] << 8 );
+	const int height = src[14] | ( src[15] << 8 );
+	if( imageType != 2 || src[16] != 32 || width <= 0 || height <= 0 )
+		return NULL;
+
+	const size_t headerLen = 18 + (size_t)idLen;
+	const size_t pixelBytes = (size_t)width * (size_t)height * 4;
+	if( (size_t)srcLen < headerLen + pixelBytes )
+		return NULL;
+
+	// Worst case: one header byte per 128-pixel literal packet, plus the pixels.
+	const size_t packetsPerRow = (size_t)( width + 127 ) / 128;
+	const size_t cap = headerLen + (size_t)height * ( packetsPerRow + (size_t)width * 4 );
+	byte *out = (byte *)malloc( cap );
+	if( !out )
+		return NULL;
+
+	memcpy( out, src, headerLen );
+	out[2] = 10;	// image type: RLE truecolor
+
+	const byte *in = src + headerLen;
+	byte *dst = out + headerLen;
+	for( int y = 0; y < height; y++ )
+	{
+		for( int x = 0; x < width; x += 128 )
+		{
+			const int run = ( width - x < 128 ) ? ( width - x ) : 128;
+			*dst++ = (byte)( run - 1 );	// literal packet: high bit clear
+			memcpy( dst, in + ( (size_t)y * width + x ) * 4, (size_t)run * 4 );
+			dst += (size_t)run * 4;
+		}
+	}
+
+	*outLen = (int)( dst - out );
+	return out;
 }
 
 //-----------------------------------------------------------------------------
@@ -658,6 +712,7 @@ buildDefaultFont:
 		{
 			fontFileLength = -1;
 			pFontData = NULL;
+			bool sheetIsOwnRle = false;	// pFontData came from Sgtc_SheetToRle (free())
 
 			if(bBitmapFontSheets)
 			{
@@ -678,7 +733,21 @@ buildDefaultFont:
 				snprintf(fontFilename, sizeof( fontFilename ), "gfx/vgui/fonts/%d_%s.tga", fontRes, m_pSchemeList[i].schemeName);
 				pFontData = gEngfuncs.COM_LoadFile( fontFilename, 5, &fontFileLength );
 				if(!pFontData)
+				{
 					gEngfuncs.Con_Printf("Missing bitmap font: %s\n", fontFilename);
+				}
+				else
+				{
+					int rleLength = 0;
+					byte *rle = Sgtc_SheetToRle( pFontData, fontFileLength, &rleLength );
+					if( rle )
+					{
+						gEngfuncs.COM_FreeFile( pFontData );
+						pFontData = rle;
+						fontFileLength = rleLength;
+						sheetIsOwnRle = true;
+					}
+				}
 			}
 
 			m_pSchemeList[i].font = new vgui::Font(
@@ -721,7 +790,12 @@ buildDefaultFont:
 			// Font::init copies the sheet into its own bitmap, so the file buffer
 			// is no longer referenced once the constructor returns.
 			if( pFontData )
-				gEngfuncs.COM_FreeFile( pFontData );
+			{
+				if( sheetIsOwnRle )
+					free( pFontData );
+				else
+					gEngfuncs.COM_FreeFile( pFontData );
+			}
 
 			m_pSchemeList[i].ownFontPointer = true;
 		}
