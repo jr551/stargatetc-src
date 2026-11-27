@@ -386,6 +386,7 @@ static void cmd_botkill( void );
 static void cmd_wepfireall( void );
 static void cmd_grenadethrow( void );
 static void cmd_grenadethrowcheck( void );
+static void cmd_grenadethrowall( void );
 static void cmd_reetoutest( void );
 static void cmd_c4detonate( void );
 static void cmd_hazardenable( const char *pszStateId );
@@ -579,6 +580,8 @@ static int SGTC_TestRunToken( const char *pszToken )
 		cmd_grenadethrow();
 	else if( !strcmp( pszToken, "grenadethrowcheck" ) )
 		cmd_grenadethrowcheck();
+	else if( !strcmp( pszToken, "grenadethrowall" ) )
+		cmd_grenadethrowall();
 	else if( !strcmp( pszToken, "c4drop" ) )
 		cmd_c4drop();
 	else if( !strcmp( pszToken, "reetoutest" ) )
@@ -1223,6 +1226,79 @@ static void cmd_grenadethrowcheck( void )
 	test_out( "SGTCTEST {\"cmd\":\"grenadethrowcheck\",\"ammo_before\":%d,\"ammo_after\":%d,\"start_throw\":%.2f,\"grenades_in_world\":%d,\"alive\":%d,\"time\":%.2f}",
 		s_grenadeAmmoBefore, pWep ? p->m_rgAmmo[pWep->m_iPrimaryAmmoType] : -1,
 		pWep ? pWep->m_flStartThrow : -1.0f, nGrenades, (int)p->IsAlive(), gpGlobals->time );
+}
+
+// Throw check for the other grenade classes, one per repeat round. A round checks
+// the previous pin (ammo used, pin state, entities), then pins the next class.
+// Round length is set by sgtc_test_repeat_interval; keep it >= 3 s so the fuse
+// and the release can finish first.
+static const char *const s_grenadeClasses[] =
+{
+	"weapon_smokegrenade", "weapon_flashbang", "weapon_mustardgrenade",
+	"weapon_narcogrenade", "weapon_nervegrenade", "weapon_gacgoa",
+};
+static int s_gtCursor = 0;
+static int s_gtPending = -1;
+static int s_gtAmmoBefore = 0;
+static int s_gtEntsBefore = 0;
+
+static void cmd_grenadethrowall( void )
+{
+	const int total = (int)( sizeof( s_grenadeClasses ) / sizeof( s_grenadeClasses[0] ) );
+	CBasePlayer *p = SGTC_WepFireShooter();
+	if( !p )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"shooter\":0,\"cursor\":%d}", s_gtCursor );
+		return;
+	}
+
+	if( s_gtPending >= 0 )
+	{
+		const char *pszClass = s_grenadeClasses[s_gtPending];
+		CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( p, pszClass );
+		const int ammoAfter = pWep ? SGTC_WepAmmoSum( p, pWep ) : -1;
+		const float startAfter = pWep ? pWep->m_flStartThrow : -1.0f;
+		const int entsDelta = NUMBER_OF_ENTITIES() - s_gtEntsBefore;
+		const bool bThrown = ammoAfter >= 0 && ammoAfter < s_gtAmmoBefore;
+		UTIL_LogPrintf( "SGTCEVENT {\"event\":\"grenade_result\",\"class\":\"%s\",\"thrown\":%d,\"ammo_before\":%d,\"ammo_after\":%d,\"start_throw\":%.2f,\"ents_delta\":%d,\"time\":%.2f}\n",
+			pszClass, bThrown ? 1 : 0, s_gtAmmoBefore, ammoAfter, startAfter, entsDelta, gpGlobals->time );
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"check\":\"%s\",\"thrown\":%d,\"ammo_before\":%d,\"ammo_after\":%d,\"time\":%.2f}",
+			pszClass, bThrown ? 1 : 0, s_gtAmmoBefore, ammoAfter, gpGlobals->time );
+		s_gtPending = -1;
+	}
+
+	if( s_gtCursor >= total )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"done\":1,\"classes\":%d}", total );
+		return;
+	}
+
+	const int idx = s_gtCursor++;
+	const char *pszClass = s_grenadeClasses[idx];
+	CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( p, pszClass );
+	if( !pWep )
+	{
+		p->GiveNamedItem( pszClass );
+		pWep = SGTC_FindWeaponByClass( p, pszClass );
+	}
+	if( !pWep )
+	{
+		UTIL_LogPrintf( "SGTCEVENT {\"event\":\"grenade_result\",\"class\":\"%s\",\"given\":0}\n", pszClass );
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"pin\":\"%s\",\"given\":0}", pszClass );
+		return;
+	}
+
+	p->SwitchWeapon( pWep );
+	if( pWep->m_iPrimaryAmmoType >= 0 && pWep->m_iPrimaryAmmoType < MAX_AMMO_SLOTS )
+		p->m_rgAmmo[pWep->m_iPrimaryAmmoType] = 3;
+	s_gtAmmoBefore = SGTC_WepAmmoSum( p, pWep );
+	s_gtEntsBefore = NUMBER_OF_ENTITIES();
+	s_gtPending = idx;
+	pWep->m_flNextPrimaryAttack = 0.0f;
+	pWep->m_flTimeWeaponIdle = 0.0f;
+	pWep->PrimaryAttack();
+	test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"pin\":\"%s\",\"ammo\":%d,\"start_throw\":%.2f,\"time\":%.2f}",
+		pszClass, s_gtAmmoBefore, pWep->m_flStartThrow, gpGlobals->time );
 }
 
 static void cmd_c4count( void )
