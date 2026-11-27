@@ -23,6 +23,7 @@ void SGTC_PrecacheGasSprites( void )
 	g_sModelIndexSgtcNarco = PRECACHE_MODEL( "sprites/nargas.spr" );
 	g_sModelIndexSgtcNerve = PRECACHE_MODEL( "sprites/ngas.spr" );
 	g_sModelIndexSgtcGasSmoke = PRECACHE_MODEL( "sprites/steam1.spr" );
+	PRECACHE_SOUND( "weapons/gren_cock1.wav" );	// pin pull, SGTC_GasPinPull
 }
 
 static short SGTC_GasSpriteIndex( int gasType )
@@ -317,6 +318,7 @@ void CSGTCGasGrenadeWeapon::SGTC_GasPinPull( void )
 	m_flGasStartThrow = gpGlobals->time;
 	m_flGasReleaseThrow = 0.0f;
 	m_pPlayer->SnagInvis();
+	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/gren_cock1.wav", 1.0f, ATTN_NORM );	// pin pull was silent
 	SendWeaponAnim( SGTC_FIRE1 );	// ref pin-pull anim 2
 	m_flTimeWeaponIdle = UTIL_WeaponTimeBase() + 0.5f;
 }
