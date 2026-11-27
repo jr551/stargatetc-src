@@ -223,18 +223,9 @@ void CSGTCProjBase::EffectThink( void )
 	{
 		pev->gravity = 0.05f;
 		pev->friction = 0.0f;
-		MESSAGE_BEGIN( MSG_BROADCAST, SVC_TEMPENTITY, pev->origin );
-			WRITE_BYTE( TE_DLIGHT );
-			WRITE_COORD( pev->origin.x );
-			WRITE_COORD( pev->origin.y );
-			WRITE_COORD( pev->origin.z );
-			WRITE_BYTE( 72 );	// radius. Was 180: the bolt starts at the muzzle and washed the near rocks out.
-			WRITE_BYTE( 255 );
-			WRITE_BYTE( 180 );
-			WRITE_BYTE( 60 );
-			WRITE_BYTE( 1 );
-			WRITE_BYTE( 250 );
-		MESSAGE_END();
+		// No dynamic light. The orange light (255,180,60) washed the rock near the
+		// bolt yellow and white at radius 72, and a dimmer one still did at radius 40.
+		// The glow sprite below stays.
 		if( s_iBigGlow > 0 )
 		{
 			MESSAGE_BEGIN( MSG_BROADCAST, SVC_TEMPENTITY, pev->origin );
