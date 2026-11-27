@@ -382,6 +382,7 @@ static void cmd_c4drop( void );
 static void cmd_firepatchtest( void );
 static void cmd_firepatchburst( void );
 static void cmd_botzatduel( void );
+static void cmd_botkill( void );
 static void cmd_reetoutest( void );
 static void cmd_c4detonate( void );
 static void cmd_hazardenable( const char *pszStateId );
@@ -567,6 +568,8 @@ static int SGTC_TestRunToken( const char *pszToken )
 		cmd_firepatchburst();
 	else if( !strcmp( pszToken, "botzatduel" ) )
 		cmd_botzatduel();
+	else if( !strcmp( pszToken, "botkill" ) )
+		cmd_botkill();
 	else if( !strcmp( pszToken, "c4drop" ) )
 		cmd_c4drop();
 	else if( !strcmp( pszToken, "reetoutest" ) )
@@ -910,6 +913,43 @@ static void cmd_botzatduel( void )
 	// opponent search indistinguishable from a quiet server.
 	test_out( "SGTCTEST {\"cmd\":\"botzatduel\",\"fired\":%d,\"shooters\":%d,\"paired\":%d,\"armed\":%d,\"time\":%.2f}",
 		fired, shooters, paired, armed, gpGlobals->time );
+}
+
+// Kill the first live bot with a lethal hit from the next live bot. This drives
+// the real death path (Killed -> OnPlayerKilled -> respawn) that botzatduel
+// never reaches, because its zat bolts miss. Schedule with a timed script.
+static void cmd_botkill( void )
+{
+	CBasePlayer *pVictim = NULL;
+	CBasePlayer *pAttacker = NULL;
+	for( int i = 1; i <= gpGlobals->maxClients; ++i )
+	{
+		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
+		if( !pEntity || !pEntity->IsPlayer() || !FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) ||
+			!pEntity->IsAlive() )
+			continue;
+		CBasePlayer *pPlayer = (CBasePlayer *)pEntity;
+		if( !pVictim )
+			pVictim = pPlayer;
+		else if( !pAttacker )
+		{
+			pAttacker = pPlayer;
+			break;
+		}
+	}
+	if( !pVictim || !pAttacker )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"botkill\",\"killed\":0,\"bots\":%d}",
+			pVictim ? 1 : 0 );
+		return;
+	}
+	const float hpBefore = pVictim->pev->health;
+	pVictim->TakeDamage( pAttacker->pev, pAttacker->pev, 1000.0f, DMG_BULLET );
+	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"bot_kill\",\"victim\":\"%s\",\"attacker\":\"%s\",\"hp_before\":%.0f,\"alive_after\":%d,\"time\":%.2f}\n",
+		STRING( pVictim->pev->netname ), STRING( pAttacker->pev->netname ),
+		hpBefore, (int)pVictim->IsAlive(), gpGlobals->time );
+	test_out( "SGTCTEST {\"cmd\":\"botkill\",\"killed\":1,\"victim\":\"%s\",\"alive_after\":%d,\"time\":%.2f}",
+		STRING( pVictim->pev->netname ), (int)pVictim->IsAlive(), gpGlobals->time );
 }
 
 static void cmd_c4count( void )
