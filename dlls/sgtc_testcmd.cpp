@@ -997,28 +997,139 @@ static int SGTC_WepAmmoSum( CBasePlayer *p, CBasePlayerWeapon *pWep )
 // This is a fire-path smoke test: it does not aim or check damage.
 // The sweep runs across repeated rounds. A weapon that kills its own bot (C4,
 // glstaff) ends the round; the bot respawns, and the next round picks up at the
-// class after it. One sweep per server start.
+// class after it. After the main pass, classes with no primary effect are tried
+// once more in a later round, so weapons with a deploy timer (the knife) get
+// time to become ready. One sweep per server start.
 static int s_wepfireCursor = 0;
 static int s_wepfireGiven = 0, s_wepfirePrimary = 0, s_wepfireSecondary = 0;
+static int s_wepfireNoEffect[64];
+static int s_wepfireNoEffectCount = 0;
+static bool s_wepfireRetryDone = false;
+
+// One class: give it if needed, top up its ammo, fire both attacks, and log the
+// result. Returns false when the weapon could not be given.
+static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *pbPrimary, bool *pbSecondary )
+{
+	*pbPrimary = false;
+	*pbSecondary = false;
+	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_begin\",\"class\":\"%s\",\"time\":%.2f}\n",
+		pszClass, gpGlobals->time );
+
+	CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( pShooter, pszClass );
+	if( !pWep )
+	{
+		pShooter->GiveNamedItem( pszClass );
+		pWep = SGTC_FindWeaponByClass( pShooter, pszClass );
+	}
+	if( !pWep )
+	{
+		UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_result\",\"class\":\"%s\",\"given\":0}\n", pszClass );
+		return false;
+	}
+
+	pShooter->SwitchWeapon( pWep );
+	// Top up the weapon's ammo so an empty magazine or pack cannot hide a
+	// weapon that would otherwise fire.
+	if( pWep->m_iPrimaryAmmoType >= 0 && pWep->m_iPrimaryAmmoType < MAX_AMMO_SLOTS &&
+		pShooter->m_rgAmmo[pWep->m_iPrimaryAmmoType] < 30 )
+		pShooter->m_rgAmmo[pWep->m_iPrimaryAmmoType] = 30;
+	if( pWep->m_iSecondaryAmmoType >= 0 && pWep->m_iSecondaryAmmoType < MAX_AMMO_SLOTS &&
+		pShooter->m_rgAmmo[pWep->m_iSecondaryAmmoType] < 30 )
+		pShooter->m_rgAmmo[pWep->m_iSecondaryAmmoType] = 30;
+	// Glstaff shots drain stamina, and an overdraw hurts the shooter (2x the
+	// shortfall). Refill it so the probe measures the fire path, not that damage.
+	pShooter->m_iStamina = 100;
+	const int clipBefore = pWep->m_iClip;
+
+	// A weapon counts as fired when any effect shows: a cooldown was armed, the
+	// idle timer was set (grenade pin pull, invis toggle), a grenade is pinned,
+	// the clip or ammo changed, or the attack created an entity (bolt, charge).
+	// Each press is checked before the next one clears the cooldown fields, so
+	// the first press's effect is not lost to the second press's reset. Two
+	// presses per attack: some weapons arm a refire gate on the first press and
+	// fire on the second, which is what a held trigger sends.
+	const int entsBefore = NUMBER_OF_ENTITIES();
+	const int ammoBefore = SGTC_WepAmmoSum( pShooter, pWep );
+	bool bArmed = false;
+	for( int press = 0; press < 2; ++press )
+	{
+		pWep->m_flNextPrimaryAttack = 0.0f;
+		pWep->m_flTimeWeaponIdle = 0.0f;
+		pWep->PrimaryAttack();
+		if( pWep->m_flNextPrimaryAttack > 0.0f || pWep->m_flTimeWeaponIdle > 0.0f || pWep->m_flStartThrow > 0.0f )
+			bArmed = true;
+	}
+	const int entsPrimary = NUMBER_OF_ENTITIES() - entsBefore;
+	const bool bPrimary = bArmed || pWep->m_iClip != clipBefore ||
+		SGTC_WepAmmoSum( pShooter, pWep ) != ammoBefore || entsPrimary > 0;
+
+	const int entsSecondaryBefore = NUMBER_OF_ENTITIES();
+	pWep->m_flNextSecondaryAttack = 0.0f;
+	pWep->SecondaryAttack();
+	const bool bSecondary = pWep->m_flNextSecondaryAttack > 0.0f ||
+		NUMBER_OF_ENTITIES() > entsSecondaryBefore;
+
+	*pbPrimary = bPrimary;
+	*pbSecondary = bSecondary;
+	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_result\",\"class\":\"%s\",\"given\":1,\"primary\":%d,\"secondary\":%d,\"ents_primary\":%d,\"clip_before\":%d,\"clip_after\":%d,\"ammo_idx\":%d,\"ammo_sum\":%d,\"start_throw\":%.2f,\"release_throw\":%.2f}\n",
+		pszClass, bPrimary ? 1 : 0, bSecondary ? 1 : 0, entsPrimary, clipBefore, pWep->m_iClip,
+		pWep->m_iPrimaryAmmoType, SGTC_WepAmmoSum( pShooter, pWep ), pWep->m_flStartThrow, pWep->m_flReleaseThrow );
+	return true;
+}
+
+static CBasePlayer *SGTC_WepFireShooter( void )
+{
+	for( int i = 1; i <= gpGlobals->maxClients; ++i )
+	{
+		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
+		if( pEntity && pEntity->IsPlayer() && FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) &&
+			pEntity->IsAlive() )
+			return (CBasePlayer *)pEntity;
+	}
+	return NULL;
+}
 
 static void cmd_wepfireall( void )
 {
 	const int total = (int)( sizeof( s_wepfireClasses ) / sizeof( s_wepfireClasses[0] ) );
 	if( s_wepfireCursor >= total )
 	{
+		// Retry pass: once, after the main pass, the classes with no primary effect.
+		if( !s_wepfireRetryDone )
+		{
+			CBasePlayer *pRetryShooter = SGTC_WepFireShooter();
+			if( !pRetryShooter )
+			{
+				test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"retry\":0,\"shooter\":0}" );
+				return;
+			}
+			s_wepfireRetryDone = true;
+			int retried = 0, recovered = 0;
+			for( int k = 0; k < s_wepfireNoEffectCount && pRetryShooter->IsAlive(); ++k )
+			{
+				const char *pszClass = s_wepfireClasses[s_wepfireNoEffect[k]];
+				bool bPrimary = false, bSecondary = false;
+				++retried;
+				if( !SGTC_WepFireOne( pRetryShooter, pszClass, &bPrimary, &bSecondary ) )
+					continue;
+				if( bPrimary )
+				{
+					++recovered;
+					++s_wepfirePrimary;
+				}
+				UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_retry\",\"class\":\"%s\",\"primary\":%d,\"time\":%.2f}\n",
+					pszClass, bPrimary ? 1 : 0, gpGlobals->time );
+			}
+			test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"retry\":%d,\"recovered\":%d,\"time\":%.2f}",
+				retried, recovered, gpGlobals->time );
+			return;
+		}
 		test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"done\":1,\"classes\":%d,\"given\":%d,\"primary\":%d,\"secondary\":%d}",
 			total, s_wepfireGiven, s_wepfirePrimary, s_wepfireSecondary );
 		return;
 	}
 
-	CBasePlayer *pShooter = NULL;
-	for( int i = 1; i <= gpGlobals->maxClients && !pShooter; ++i )
-	{
-		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
-		if( pEntity && pEntity->IsPlayer() && FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) &&
-			pEntity->IsAlive() )
-			pShooter = (CBasePlayer *)pEntity;
-	}
+	CBasePlayer *pShooter = SGTC_WepFireShooter();
 	if( !pShooter )
 	{
 		test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"shooter\":0,\"cursor\":%d}", s_wepfireCursor );
@@ -1029,62 +1140,16 @@ static void cmd_wepfireall( void )
 	bool bKilled = false;
 	while( s_wepfireCursor < total && !bKilled )
 	{
-		const char *pszClass = s_wepfireClasses[s_wepfireCursor++];
-		UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_begin\",\"class\":\"%s\",\"time\":%.2f}\n",
-			pszClass, gpGlobals->time );
-
-		CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( pShooter, pszClass );
-		if( !pWep )
-		{
-			pShooter->GiveNamedItem( pszClass );
-			pWep = SGTC_FindWeaponByClass( pShooter, pszClass );
-		}
-		if( !pWep )
-		{
-			UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_result\",\"class\":\"%s\",\"given\":0}\n", pszClass );
+		const int idx = s_wepfireCursor++;
+		const char *pszClass = s_wepfireClasses[idx];
+		bool bPrimary = false, bSecondary = false;
+		if( !SGTC_WepFireOne( pShooter, pszClass, &bPrimary, &bSecondary ) )
 			continue;
-		}
 		++roundGiven;
-
-		pShooter->SwitchWeapon( pWep );
-		// Top up the weapon's ammo so an empty magazine or pack cannot hide a
-		// weapon that would otherwise fire.
-		if( pWep->m_iPrimaryAmmoType >= 0 && pWep->m_iPrimaryAmmoType < MAX_AMMO_SLOTS &&
-			pShooter->m_rgAmmo[pWep->m_iPrimaryAmmoType] < 30 )
-			pShooter->m_rgAmmo[pWep->m_iPrimaryAmmoType] = 30;
-		if( pWep->m_iSecondaryAmmoType >= 0 && pWep->m_iSecondaryAmmoType < MAX_AMMO_SLOTS &&
-			pShooter->m_rgAmmo[pWep->m_iSecondaryAmmoType] < 30 )
-			pShooter->m_rgAmmo[pWep->m_iSecondaryAmmoType] = 30;
-		const int clipBefore = pWep->m_iClip;
-
-		// A weapon counts as fired when any effect shows: a cooldown was armed, the
-		// clip or ammo changed, or the attack created an entity (bolt, grenade,
-		// charge). Two presses per attack: some weapons arm a refire gate on the
-		// first press and fire on the second, which is what a held trigger sends.
-		const int entsBefore = NUMBER_OF_ENTITIES();
-		const int ammoBefore = SGTC_WepAmmoSum( pShooter, pWep );
-		// m_flTimeWeaponIdle is also set by grenade pin pulls and the invis toggle.
-		for( int press = 0; press < 2; ++press )
-		{
-			pWep->m_flNextPrimaryAttack = 0.0f;
-			pWep->m_flTimeWeaponIdle = 0.0f;
-			pWep->PrimaryAttack();
-		}
-		const int entsPrimary = NUMBER_OF_ENTITIES() - entsBefore;
-		const bool bPrimary = pWep->m_flNextPrimaryAttack > 0.0f || pWep->m_flTimeWeaponIdle > 0.0f ||
-			pWep->m_iClip != clipBefore || SGTC_WepAmmoSum( pShooter, pWep ) != ammoBefore || entsPrimary > 0;
-
-		const int entsSecondaryBefore = NUMBER_OF_ENTITIES();
-		pWep->m_flNextSecondaryAttack = 0.0f;
-		pWep->SecondaryAttack();
-		const bool bSecondary = pWep->m_flNextSecondaryAttack > 0.0f ||
-			NUMBER_OF_ENTITIES() > entsSecondaryBefore;
-
 		roundPrimary += bPrimary ? 1 : 0;
 		roundSecondary += bSecondary ? 1 : 0;
-		UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_result\",\"class\":\"%s\",\"given\":1,\"primary\":%d,\"secondary\":%d,\"ents_primary\":%d,\"clip_before\":%d,\"clip_after\":%d,\"ammo_idx\":%d,\"ammo_sum\":%d}\n",
-			pszClass, bPrimary ? 1 : 0, bSecondary ? 1 : 0, entsPrimary, clipBefore, pWep->m_iClip,
-			pWep->m_iPrimaryAmmoType, SGTC_WepAmmoSum( pShooter, pWep ) );
+		if( !bPrimary && s_wepfireNoEffectCount < 64 )
+			s_wepfireNoEffect[s_wepfireNoEffectCount++] = idx;
 
 		if( !pShooter->IsAlive() )
 		{
