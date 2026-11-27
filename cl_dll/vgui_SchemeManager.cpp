@@ -701,8 +701,8 @@ buildDefaultFont:
 			// the HUD/command-menu Label init). Fall back to the named font.
 			if( pFontData && m_pSchemeList[i].font && !m_pSchemeList[i].font->getPlat() )
 			{
-				gEngfuncs.Con_Printf( "Bitmap font %s is unreadable, using system font %s\n",
-					fontFilename, m_pSchemeList[i].fontName );
+				gEngfuncs.Con_Printf( "Bitmap font %s (%d bytes) is unreadable, using system font %s\n",
+					fontFilename, fontFileLength, m_pSchemeList[i].fontName );
 				delete m_pSchemeList[i].font;
 				m_pSchemeList[i].font = new vgui::Font(
 					m_pSchemeList[i].fontName,

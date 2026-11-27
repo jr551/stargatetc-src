@@ -6,8 +6,12 @@
 // scheme, that CSchemeManager falls back to the named system font instead of
 // leaving a Font with no glyph source (the signal 11 crash in Font::getTextSize).
 //
-//   scheme_font_fallback_harness <game dir>                  all schemes, real sheets
-//   scheme_font_fallback_harness <game dir> <scheme name>    corrupt that scheme's sheet
+//   scheme_font_fallback_harness <game dir> <xres>                 all schemes, real sheets
+//   scheme_font_fallback_harness <game dir> <xres> <scheme name>   corrupt that scheme's sheet
+//
+// <xres> selects the sheet tier (640, 800, 1024, 1152, 1280, 1600). The valve
+// package ships 640/800/1152 sheets as uncompressed TGA (image type 2), which
+// the loader rejects, so those tiers exercise the fallback with real data.
 //
 // Output: one `CASE <name> PASS|FAIL <detail>` line per check, then SUMMARY.
 // Exit nonzero on any failure. Engine-side strings the client logs are echoed
@@ -193,13 +197,14 @@ static const char *s_schemes[] = {
 
 int main( int argc, char **argv )
 {
-	if( argc < 2 )
+	if( argc < 3 )
 	{
-		fprintf( stderr, "usage: %s <game dir> [corrupt scheme name]\n", argv[0] );
+		fprintf( stderr, "usage: %s <game dir> <xres> [corrupt scheme name]\n", argv[0] );
 		return 2;
 	}
 	s_gameDir = argv[1];
-	s_corruptScheme = argc > 2 ? argv[2] : NULL;
+	const int xRes = atoi( argv[2] );
+	s_corruptScheme = argc > 3 ? argv[3] : NULL;
 
 	memset( &gEngfuncs, 0, sizeof( gEngfuncs ) );
 	gEngfuncs.pfnRegisterVariable = stub_register_variable;
@@ -211,7 +216,7 @@ int main( int argc, char **argv )
 
 	Scheme_Init();
 
-	CSchemeManager *mgr = new CSchemeManager( 1280, 800 );
+	CSchemeManager *mgr = new CSchemeManager( xRes, xRes * 10 / 16 );
 
 	for( size_t i = 0; i < sizeof( s_schemes ) / sizeof( s_schemes[0] ); i++ )
 	{
