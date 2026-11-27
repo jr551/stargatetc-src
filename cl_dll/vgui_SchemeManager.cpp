@@ -682,18 +682,47 @@ buildDefaultFont:
 			}
 
 			m_pSchemeList[i].font = new vgui::Font(
-				m_pSchemeList[i].fontName, 
+				m_pSchemeList[i].fontName,
 				pFontData,
 				fontFileLength,
-				m_pSchemeList[i].fontSize, 
-				0, 
-				0, 
-				m_pSchemeList[i].fontWeight, 
-				false, 
-				false, 
-				false, 
+				m_pSchemeList[i].fontSize,
+				0,
+				0,
+				m_pSchemeList[i].fontWeight,
+				false,
+				false,
+				false,
 				false);
-			
+
+			// vgui::Font's header promises the system font when the TGA sheet
+			// cannot be used, but Font::init leaves no glyph source behind when
+			// the sheet fails to parse. Every later text measure then calls
+			// through a null platform font (signal 11 in Font::getTextSize from
+			// the HUD/command-menu Label init). Fall back to the named font.
+			if( pFontData && m_pSchemeList[i].font && !m_pSchemeList[i].font->getPlat() )
+			{
+				gEngfuncs.Con_Printf( "Bitmap font %s is unreadable, using system font %s\n",
+					fontFilename, m_pSchemeList[i].fontName );
+				delete m_pSchemeList[i].font;
+				m_pSchemeList[i].font = new vgui::Font(
+					m_pSchemeList[i].fontName,
+					NULL,
+					0,
+					m_pSchemeList[i].fontSize,
+					0,
+					0,
+					m_pSchemeList[i].fontWeight,
+					false,
+					false,
+					false,
+					false);
+			}
+
+			// Font::init copies the sheet into its own bitmap, so the file buffer
+			// is no longer referenced once the constructor returns.
+			if( pFontData )
+				gEngfuncs.COM_FreeFile( pFontData );
+
 			m_pSchemeList[i].ownFontPointer = true;
 		}
 
