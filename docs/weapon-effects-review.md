@@ -6,8 +6,8 @@ Branch `goal/weapon-effects-feel`, on top of `716dc00`. Scope: every weapon clas
 
 - **Server, all MP arsenal weapons.** `wepfireall` on a dedicated server (`sg_nox`) gives each weapon, fires its primary, and fires its secondary where the class has one, logging each step. Sweep build: 38 classes registered, 31 given, 31 primaries fired, 11 secondaries fired, 0 retries.
 - **Client, one GUI run per weapon.** Each run loads `sg_nox`, refills stamina, gives the weapon, sets its ammo to 5, fires the primary (or holds the secondary), and takes a screenshot 3 frames after the trigger. `sgtc_fxlog 1` prints one `SGTCFX <event> idx= origin= f1= i1=` line when each client event arrives. A receipt means the client handler ran.
-- **Extra runs** for cases the sweep does not reach: the silenced P90, the charged Zat shot, medic self-heal, the larve detonation, the six shims, the gas release (three runs), and glstaff and Batsup after the r17 changes.
-- **Builds.** The sweep and the extra runs used r16 (`hl.so` md5 `1027e860…`, `client.so` md5 `3482aee5…`). The gas, glstaff and Batsup-second-swing runs used r17 (`hl.so` md5 `cc9efb1f…`), which adds the gas throw cue and the lance light change.
+- **Extra runs** for cases the sweep does not reach: the silenced P90, the charged Zat shot, medic self-heal, the larve detonation, the six shims, the gas release (three runs), and glstaff, Batsup and the satchel shim after the later changes.
+- **Builds.** The sweep and the extra runs used r16 (`hl.so` md5 `1027e860…`, `client.so` md5 `3482aee5…`). The gas, glstaff and Batsup-second-swing runs used r17 (`hl.so` md5 `cc9efb1f…`). The satchel shim and the bolt-light removal were checked on r18 and r19 builds, on glstaff and the satchel shim only.
 - **Sound was not heard.** The runs used `-nosound`. Where the code plays a sound, the file was checked on disk. Nothing below claims a sound was heard.
 - **Visible effects** come from single screenshot frames. "Not in frame" means the frame did not show the effect; it does not mean the effect is absent.
 - **Evidence files** are in the test scratch folder, not the repo: run logs `one-<tag>.clean`, screenshots `one-shots/<tag>.png`, and the server log `dedi-final3.log`.
@@ -15,7 +15,7 @@ Branch `goal/weapon-effects-feel`, on top of `716dc00`. Scope: every weapon clas
 ## Corrections to earlier notes
 
 - **Gas grenades do release.** An earlier note said the canister never left the hand. That was a misreading: the canister still in hand is the next one (ammo 5 becomes 4). The release sends `events/throw.sc` with `i1=29`. The gas cloud itself was not captured in any frame.
-- **The glstaff wash is not fixed.** The big lance light was reduced from radius 180 to 72 in r17, but the glstaff frame is still washed out to white and pink. The client BigLance handler adds no light, so the cause is still open.
+- **The glstaff wash came from the bolt's light.** The big lance bolt's dynamic light was orange (255,180,60). At radius 72 it washed the rock near the bolt yellow and white, and at radius 40 it still did. The impact explosion and the laser beams were tested and were not the cause. The light is removed (`aa3e9da`); the glow sprite stays, and the glstaff frame is normal.
 
 ## Missing game assets
 
@@ -46,10 +46,10 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_mp5` (CMP5, stock) | None; stock `mp5.sc` is not logged | Held | Stock cooldown-only stub; no event (`mp5-sec`) | Held | Needs a decision; see Decisions |
 | `weapon_reetou` (CReetou) | `reetou.sc` ×1 | Held; no projectile in frame | `reetou2.sc` ×1 | Held; no effect in frame | |
 | `weapon_zat` (CZat) | `zata.sc` ×1; charged `zatb.sc` ×1 (extra run) | Held; no beam in frame | None | — | Zat wave sprite missing |
-| `weapon_zatarc` (CZatarc) | `zatarc.sc` ×1 | Whole view tinted yellow-green; source not identified | Zoom; no event by design | Not checked | |
+| `weapon_zatarc` (CZatarc) | `zatarc.sc` ×1 | Whole view tinted yellow-green; source not identified. The zatarc code has a dynamic light (`dlls/sgtc_wpn_zatarc.cpp:208`), not checked | Zoom; no event by design | Not checked | Open |
 | `weapon_tacgun` (CTacgun) | `tac.sc` ×1 | Held; no laser dot in frame | HUD info cycle and `tacact.wav`; no event by design | Held; HUD change not confirmed | |
 | `weapon_main` (CMainDieu, Energie) | `main.sc` ×1, `mains.sc` ×1 (stop) | Held; beam streak visible from the device | `main2.sc` ×1 | Hand only; no beam in frame | Live beam from an earlier commit (29e11d8) |
-| `weapon_glstaff` (CBigLanceJaffa) | `biglance.sc` ×1 | **Whole view washed white and pink on r16 and r17. Open** | None | — | Projectile light reduced to 72 in r17; the wash remains |
+| `weapon_glstaff` (CBigLanceJaffa) | `biglance.sc` ×1 | Washed white and pink on r16 and r17 from the bolt's light. Normal on r19 (frame checked) | None | — | Light removed in `aa3e9da`; glow sprite kept |
 | `weapon_lance` (CLanceJaffa) | `lance.sc` ×1 | Held; bolt trail visible | `lance2.sc` ×1 | Held; no bolt in frame | |
 | `weapon_larve` (CLarve) | `larve.sc` ×1 | Larve held | Detonate owned larves; no event by design | Wall close-up; detonation not in frame | |
 | `weapon_invis` (CInvis) | `invis.sc` ×1 | Device held | Shield wall: no event in the harness | Held; no wall | Did not fire in the harness; cause not checked |
@@ -58,7 +58,7 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_coujaf` (CCoujaf) | `coujaf.sc` ×1 (swing and miss) | Blade mid-swing; no hit in frame | None | — | Miss now sends the event (commit 7323428). `nightstrike.wav` missing |
 | `weapon_couteau` (CCouteau) | `couteau.sc` ×1 and `throw.sc` ×1 (`i1=3`) | Knife held | `throw.sc` ×1 (`i1=3`) | Knife held; throw not in frame | |
 | `weapon_gacgoa` (CGrenadeChoc) | `throw.sc` ×1 (`i1=10`) | Device held; throw not in frame | `throw.sc` ×1 (`i1=10`) | Held | |
-| `weapon_flashbang` (CFlashBang) | `throw.sc` ×1 (`i1=0`) | Held; detonation not in frame | None | — | `i1=0` is the flashbang's id by design. `flashbang.wav` missing: detonation silent |
+| `weapon_flashbang` (CFlashBang) | `throw.sc` ×1 (`i1=0`) | Held; detonation not in frame | None | — | `i1=0` is the flashbang's id by design. Detonation is the stock flash path (`CGrenade::ShootFlash`); `flashbang.wav` missing, so the detonation sound is silent |
 | `weapon_handgrenade` (CHandGrenade, stock) | `throw.sc` ×1 (`i1=12`) from the ammo watch | Grenade held | None | — | Stock class, not edited |
 | `weapon_c4` (CSgtcC4) | `throw.sc` ×1 (`i1=14`) | Two C4 units; a charge is on the ground ahead | Stock detonate; not run | — | Subclass of the stock satchel |
 | `weapon_mine` (CTripmine, stock) | None; stock `tripfire.sc` is not logged | Mine held; placement not captured | None | — | Stock class, not edited |
@@ -73,7 +73,7 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_crossbow` (SP shim → CPsg1) | `psg1.sc` ×1 | Not checked | None | — | Single-player only |
 | `weapon_crowbar` (SP shim → CBatonSupplice) | `batsup.sc` ×1 | Not checked | None | — | Single-player only |
 | `weapon_rpg` (SP shim → CLanceJaffa) | `lance.sc` ×1 | Not checked | None | — | Single-player only |
-| `weapon_satchel` (SP shim → stock CSatchel) | None | Not checked | — | — | No throw cue on this shim; see Decisions |
+| `weapon_satchel` (SP shim → CSgtcC4) | `throw.sc` ×1 (`i1=14`, r18) | Not checked | — | — | Now derives from CSgtcC4 (`fd44f29`) |
 | `weapon_shotgun` (SP shim → CShotgun) | `spas.sc` and `spas2.sc` ×1 | Not checked | — | — | Single-player only |
 
 ## Stock-based classes (no stock file edited)
@@ -86,17 +86,19 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 
 ## Single-player shims
 
-Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), so they carry that class's effects. `weapon_satchel` maps onto the stock `CSatchel`, which has no throw cue. The shims were given and fired in their own GUI runs; only the receipts were checked for them.
+Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), so they carry that class's effects. `weapon_satchel` now derives from `CSgtcC4` (`fd44f29`), so its drop has the same throw cue (receipt `i1=14`). The shims were given and fired in their own GUI runs; only the receipts were checked for them.
 
-## Decisions for you
+## Decisions and open items
 
 1. **MP5 secondary.** The stock `mp5.cpp` secondary only starts a cooldown and fires nothing. Fixing it means replacing the class, as C4 does. But the stock file also links `weapon_mp5`, so the SGTC link cannot be added without editing `dlls/mp5.cpp`. This needs your go-ahead to edit a stock file.
 2. **Missing assets** (table above). These need the content files, or a decision to substitute existing ones.
-3. **Glstaff wash.** The whole-view wash is still open. The cause is not the client handler, and the server projectile light change did not remove it. It needs a closer look at the projectile's effects.
-4. **Single-player satchel** has no throw cue. Deriving the shim from `CSgtcC4` would give it one, in a single line in `dlls/sp_shims.cpp`. Not done.
-5. **P90 silencer toggle** is silent. A click would be a small addition.
-6. **Gas cloud and detonation** were not captured in any frame. The detonation sound `gasflow.wav` is present on disk.
-7. **Batsup follow-up swing** (`batsup2.sc`) was not captured in the two-swing run.
+3. **Zatarc whole-view tint.** Open. The source is not identified. The zatarc code has a dynamic light (`dlls/sgtc_wpn_zatarc.cpp:208`), which is the first thing to check, the same way as the glstaff bolt.
+4. **Flashbang detonation.** Not captured. The detonation goes through the stock flash path, so a capture is needed before any change.
+5. **Gas cloud and detonation.** Not captured in any frame. The detonation sound `gasflow.wav` is present on disk.
+6. **Batsup follow-up swing** (`batsup2.sc`) was not captured in the two-swing run.
+7. **Invis shield wall** did not fire in the harness. Its secondary plays `shield.sc` when it works, and the gate needs a test setup.
+8. **Larve detonation** was not captured in a frame.
+9. **P90 silencer toggle** is silent. A click would be a small addition.
 
 ## Commits on this branch since `716dc00`
 
@@ -106,5 +108,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `754c2ec` Add test tokens for hurt, ammo and stamina
 - `880a52c` Fire the Spas and USAS pellets the server fires
 - `e51ec45` Draw the shield raise cue and self-heal puffs in view
-- `1508eb7` Reduce the big lance bolt light to radius 72
+- `1508eb7` Reduce the big lance bolt light to radius 72 (superseded by `aa3e9da`)
 - `f30cc2a` Play the throw cue when a gas grenade is released
+- `aa3e9da` Remove the big bolt's dynamic light, which washed the view
+- `fd44f29` Give the single-player satchel shim the C4 throw cue
