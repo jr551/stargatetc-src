@@ -79,12 +79,17 @@
 
 #include "vgui_int.h"
 #include "vgui_TeamFortressViewport.h"
+#include "vgui_scrollbar2.h"
+#include "vgui_slider2.h"
+#include <VGUI_IntChangeSignal.h>
 #include "l10n.h"
 #include "demo_api.h"
 #include <VGUI_TextImage.h>		// gEngfuncs.pDemoAPI->IsPlayingback()
 
 #include <stdio.h>
 #include <string.h>
+#include <string>
+#include <vector>
 #include <typeinfo>
 
 // ---------------------------------------------------------------------------
@@ -484,6 +489,217 @@ void SgtcWepSel_Refresh( void )
 //============================================================================
 // Menu 10 — briefing/objective window (ref FUN_1003f640 / FUN_100404a0)
 //============================================================================
+// Scrollable briefing text on the game's own ScrollBar2/Slider2 (the same pair
+// the listbox uses). freevgui's ScrollPanel drags through Slider, which reads the
+// cursor via App::getCursorPos; in this build that dereferences an empty surface
+// list and crashes.
+//
+// Children are not clipped in this VGUI, so the text is laid out as one Label per
+// wrapped line, and only the lines that fit fully inside the window are shown.
+// Lines are word-wrapped to the visible width, so no horizontal bar is needed.
+class CSgtcBriefingView : public Panel
+{
+public:
+	CSgtcBriefingView( int x, int y, int wide, int tall );
+
+	void SetStyle( vgui::Font *pFont, int r, int g, int b );
+	void SetText( const char *pszText );
+	void Layout( void );		// rewrap at the current width and set the scroll range
+	void ScrollTo( int value );	// pixel offset of the text
+
+private:
+	class ScrollSignal : public IntChangeSignal
+	{
+	public:
+		void intChanged( int value, Panel *panel ) { m_pView->ScrollTo( value ); }
+		CSgtcBriefingView *m_pView;
+	};
+
+	void WrapInto( const char *pszPara, int maxWide, std::vector<std::string> &out );
+	int TextWide( const char *pszText );
+
+	vgui::Font	*m_pFont;
+	int		m_iR, m_iG, m_iB;
+	std::string	m_Text;
+	std::vector<std::string> m_Lines;
+	std::vector<Label *> m_Labels;
+	Slider2		*m_pSlider;
+	ScrollBar2	*m_pScroll;
+	ScrollSignal	m_Signal;
+	int		m_iScrollBarWide;
+	int		m_iLineTall;
+	int		m_iViewWide;
+	int		m_iViewTall;
+};
+
+CSgtcBriefingView::CSgtcBriefingView( int x, int y, int wide, int tall ) : Panel( x, y, wide, tall )
+{
+	m_pFont = NULL;
+	m_iR = m_iG = m_iB = 255;
+	setPaintBackgroundEnabled( false );
+	setPaintBorderEnabled( false );
+	m_iScrollBarWide = XRES( 16 );
+	m_iLineTall = 1;
+	m_iViewWide = wide - m_iScrollBarWide;
+	m_iViewTall = tall;
+
+	m_pSlider = new Slider2( 0, 0, 10, 40, true );
+	m_pSlider->setRangeWindowEnabled( false );
+
+	m_pScroll = new ScrollBar2( wide - m_iScrollBarWide, 0, m_iScrollBarWide, tall, true );
+	m_pScroll->setParent( this );
+	m_pScroll->setSlider( m_pSlider );
+	m_pScroll->addIntChangeSignal( &m_Signal );
+	m_pScroll->setButtonPressedScrollValue( YRES( 16 ) );
+
+	m_Signal.m_pView = this;
+}
+
+void CSgtcBriefingView::SetStyle( vgui::Font *pFont, int r, int g, int b )
+{
+	m_pFont = pFont;
+	m_iR = r;
+	m_iG = g;
+	m_iB = b;
+}
+
+void CSgtcBriefingView::SetText( const char *pszText )
+{
+	m_Text = pszText ? pszText : "";
+	Layout();
+}
+
+int CSgtcBriefingView::TextWide( const char *pszText )
+{
+	int w = 0, h = 0;
+	if ( m_pFont )
+		m_pFont->getTextSize( pszText, w, h );
+	return w;
+}
+
+// Greedy word wrap of one paragraph (no newlines) to maxWide pixels. A single
+// word wider than the line is broken character by character.
+void CSgtcBriefingView::WrapInto( const char *pszPara, int maxWide, std::vector<std::string> &out )
+{
+	std::string para( pszPara );
+	std::string cur;
+	size_t pos = 0;
+	while ( pos <= para.size() )
+	{
+		size_t end = para.find( ' ', pos );
+		if ( end == std::string::npos )
+			end = para.size();
+		std::string word = para.substr( pos, end - pos );
+		pos = end + 1;
+		if ( word.empty() )
+			continue;
+
+		std::string cand = cur.empty() ? word : cur + " " + word;
+		if ( TextWide( cand.c_str() ) <= maxWide )
+		{
+			cur = cand;
+			continue;
+		}
+		if ( !cur.empty() )
+		{
+			out.push_back( cur );
+			cur.clear();
+		}
+		// Word alone: break it where it stops fitting.
+		std::string piece;
+		for ( size_t i = 0; i < word.size(); ++i )
+		{
+			std::string test = piece + word[i];
+			if ( !piece.empty() && TextWide( test.c_str() ) > maxWide )
+			{
+				out.push_back( piece );
+				piece.clear();
+			}
+			piece += word[i];
+		}
+		cur = piece;
+	}
+	out.push_back( cur );
+}
+
+void CSgtcBriefingView::Layout( void )
+{
+	m_iViewWide = m_iScrollBarWide > 0 ? ( Panel::getWide() - m_iScrollBarWide ) : Panel::getWide();
+	m_iViewTall = Panel::getTall();
+	if ( m_pFont )
+		m_iLineTall = m_pFont->getTall();
+	if ( m_iLineTall < 1 )
+		m_iLineTall = 1;
+
+	// Split on newlines, strip carriage returns, wrap each paragraph.
+	m_Lines.clear();
+	std::string para;
+	for ( size_t i = 0; i <= m_Text.size(); ++i )
+	{
+		char c = ( i < m_Text.size() ) ? m_Text[i] : '\n';
+		if ( c == '\r' )
+			continue;
+		if ( c == '\n' )
+		{
+			if ( para.empty() )
+				m_Lines.push_back( "" );
+			else
+				WrapInto( para.c_str(), m_iViewWide, m_Lines );
+			para.clear();
+			continue;
+		}
+		para += c;
+	}
+
+	// Reuse labels; add more as needed and hide the extra ones.
+	while ( m_Labels.size() < m_Lines.size() )
+	{
+		Label *pLabel = new Label( "", 0, 0, m_iViewWide, m_iLineTall );
+		pLabel->setParent( this );
+		pLabel->setContentAlignment( Label::a_west );
+		pLabel->setPaintBackgroundEnabled( false );
+		pLabel->setPaintBorderEnabled( false );
+		m_Labels.push_back( pLabel );
+	}
+	for ( size_t i = 0; i < m_Labels.size(); ++i )
+	{
+		Label *pLabel = m_Labels[i];
+		if ( i < m_Lines.size() )
+		{
+			if ( m_pFont )
+				pLabel->setFont( m_pFont );
+			pLabel->setFgColor( m_iR, m_iG, m_iB, 0 );
+			pLabel->setText( "%s", m_Lines[i].c_str() );
+		}
+		else
+		{
+			pLabel->setText( "" );
+		}
+	}
+
+	int range = (int)m_Lines.size() * m_iLineTall - m_iViewTall;
+	if ( range < 0 )
+		range = 0;
+	m_pScroll->setRange( 0, range );
+
+	int value = m_pScroll->getValue();
+	if ( value > range )
+		value = range;
+	ScrollTo( value );
+}
+
+void CSgtcBriefingView::ScrollTo( int value )
+{
+	for ( size_t i = 0; i < m_Labels.size(); ++i )
+	{
+		Label *pLabel = m_Labels[i];
+		const int y = (int)i * m_iLineTall - value;
+		const bool bShow = i < m_Lines.size() && y >= 0 && y + m_iLineTall <= m_iViewTall;
+		pLabel->setBounds( 0, y, m_iViewWide, m_iLineTall );
+		pLabel->setVisible( bShow );
+	}
+}
+
 class CSgtcBriefingPanel : public CMenuPanel
 {
 public:
@@ -499,8 +715,7 @@ private:
 	Label *m_pTitle;
 	Label *m_pServerName;
 	Label *m_pMapName;
-	CTFScrollPanel *m_pScrollPanel;
-	TextPanel *m_pBriefing;
+	CSgtcBriefingView *m_pBriefingView;
 	CommandButton *m_pOKButton;
 	bool m_bBriefingLoaded;
 };
@@ -590,18 +805,12 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	const int iScrollWide = XRES( 560 ) - 2 * XRES( 16 );
 	const int iScrollTall = YRES( 296 ) - 90;
 
-	m_pScrollPanel = new CTFScrollPanel( XRES( 16 ), YRES( 48 ) + 45, iScrollWide, iScrollTall );
-	m_pScrollPanel->setParent( m_pWindow );
-	m_pScrollPanel->setScrollBarVisible( false, false );
-	m_pScrollPanel->setScrollBarAutoVisible( false, false );	// kill the auto thick gold bar
+	m_pBriefingView = new CSgtcBriefingView( XRES( 16 ), YRES( 48 ) + 45, iScrollWide, iScrollTall );
+	m_pBriefingView->setParent( m_pWindow );
 
-	m_pBriefing = new TextPanel( "", 0, 45, XRES( 560 ) - XRES( 16 ), YRES( 296 ) - 90 );
-	m_pBriefing->setParent( m_pScrollPanel->getClient() );
-	m_pBriefing->setFont( pSchemes->getFont( hBriefingText ) );
-	m_pBriefing->setFgColor( 0x55, 0x73, 0xb9, 0 );
+	m_pBriefingView->SetStyle( pSchemes->getFont( hBriefingText ), 0x55, 0x73, 0xb9 );
 	pSchemes->getBgColor( hBriefingText, r, g, b, a );
-	m_pBriefing->setBgColor( r, g, b, a );
-	m_pBriefing->setText( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#objectif_manquant" ) ) );
+	m_pBriefingView->SetText( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#objectif_manquant" ) ) );
 
 	// OK button (ref +0xd4, localised "#Ok", close handler id 0xb). The ref
 	// builds two variants (asm @0x100400b5): W < 0x400 (low-res) uses
@@ -610,18 +819,19 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	// OK button, sized in proportion to the briefing panel. The ref geometry
 	// (124x24 units, two low/wide variants) read as a thin strip under the frame.
 	const int iOkW = XRES( 200 );
-	const int iOkH = YRES( 28 );
+	const int iOkH = YRES( 24 );
 	const int iOkX = ScreenWidth / 2 - iOkW / 2;
-	const int iOkY = ScreenHeight - YRES( 40 ) - YRES( 12 );
+	const int iOkY = ScreenHeight - YRES( 40 ) - iOkH;
 
 	m_pOKButton = new CommandButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Ok" ) ),
 		iOkX, iOkY, iOkW, iOkH );
 	m_pOKButton->setParent( this );
+	m_pOKButton->setFont( pSchemes->getFont( hTitleScheme ) );
 	m_pOKButton->addActionSignal( new CSgtcHandler_DismissMenu() );
 
 	m_bBriefingLoaded = false;
 
-	m_pScrollPanel->validate();
+	m_pBriefingView->Layout();
 }
 
 void CSgtcBriefingPanel::Open( void )
@@ -646,7 +856,7 @@ void CSgtcBriefingPanel::Refresh( void )
 
 	if ( m_bBriefingLoaded )
 	{
-		m_pScrollPanel->validate();
+		m_pBriefingView->Layout();
 		return;
 	}
 
@@ -682,14 +892,14 @@ void CSgtcBriefingPanel::Refresh( void )
 	{
 		// Missing briefing keeps the localised "#objectif_manquant" default,
 		// like the ref (it only calls setText when COM_LoadFile succeeded).
-		m_pBriefing->setText( pfile );
+		m_pBriefingView->SetText( pfile );
 		gEngfuncs.COM_FreeFile( pfile );
 	}
 	m_bBriefingLoaded = true;
 
 	// Ref never resizes the text panel; ScrollPanel's auto-visible mode picks up
 	// the overflow on validate().
-	m_pScrollPanel->validate();
+	m_pBriefingView->Layout();
 
 }
 
