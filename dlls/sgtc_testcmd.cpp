@@ -380,6 +380,8 @@ static void cmd_spawn( const char *classname, float flDist );
 static void cmd_freezebolt( void );
 static void cmd_c4drop( void );
 static void cmd_firepatchtest( void );
+static void cmd_firepatchburst( void );
+static void cmd_botzatduel( void );
 static void cmd_reetoutest( void );
 static void cmd_c4detonate( void );
 static void cmd_hazardenable( const char *pszStateId );
@@ -491,10 +493,12 @@ static void cmd_movebot( const char *pszArgs );
 static void cmd_fakehuman( const char *pszArgs );
 static void cmd_forcecloak( int iSlot, int iOn );
 
-static void SGTC_TestRunToken( const char *pszToken )
+// Returns 1 when pszToken is a token-table command (run with its own argument
+// handling), 0 otherwise. SGTC_TestCommand falls back to run_line on 0.
+static int SGTC_TestRunToken( const char *pszToken )
 {
 	if( !pszToken || !pszToken[0] )
-		return;
+		return 0;
 	if( !strncmp( pszToken, "useent_", 7 ) )
 		cmd_useent( pszToken + 7 );
 	else if( !strncmp( pszToken, "touchent_", 9 ) )
@@ -559,6 +563,10 @@ static void SGTC_TestRunToken( const char *pszToken )
 		cmd_spawn( "big_lance_proj", 120.0f );
 	else if( !strcmp( pszToken, "firepatchtest" ) )
 		cmd_firepatchtest();
+	else if( !strcmp( pszToken, "firepatchburst" ) )
+		cmd_firepatchburst();
+	else if( !strcmp( pszToken, "botzatduel" ) )
+		cmd_botzatduel();
 	else if( !strcmp( pszToken, "c4drop" ) )
 		cmd_c4drop();
 	else if( !strcmp( pszToken, "reetoutest" ) )
@@ -570,7 +578,8 @@ static void SGTC_TestRunToken( const char *pszToken )
 	else if( !strncmp( pszToken, "hazardat_", 10 ) )
 		cmd_hazardat( 0.0f, 0.0f, 0.0f );
 	else
-		SGTC_TestCommand( pszToken );
+		return 0;
+	return 1;
 }
 
 static void cmd_teamtest( void )
@@ -808,6 +817,101 @@ static void cmd_firepatchtest( void )
 	test_out( "SGTCTEST {\"cmd\":\"firepatchtest\",\"origin\":[%.1f,%.1f,%.1f]}", pos.x, pos.y, pos.z );
 }
 
+static void cmd_firepatchburst( void )
+{
+	CBasePlayer *p = SGTC_TestPlayerAt( 1 );
+	if( !p ) { test_out( "SGTCTEST {\"cmd\":\"firepatchburst\",\"player\":0}" ); return; }
+	const Vector pos = p->pev->origin + gpGlobals->v_forward * 96.0f;
+	for( int i = 0; i < 201; ++i )
+		SGTC_FirePatch_Spawn( pos, 3.5f, 7.0f );
+	test_out( "SGTCTEST {\"cmd\":\"firepatchburst\",\"requested\":201,\"origin\":[%.1f,%.1f,%.1f]}",
+		pos.x, pos.y, pos.z );
+}
+
+// Deterministic gameplay repro: real fake-client bots aim and fire their Zat
+// weapon at an opposing bot. Schedule with sgtc_test_repeat_script=botzatduel.
+static void cmd_botzatduel( void )
+{
+	int fired = 0;
+	int shooters = 0, paired = 0, armed = 0;
+	for( int i = 1; i <= gpGlobals->maxClients; ++i )
+	{
+		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
+		if( !pEntity || !pEntity->IsPlayer() || !FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) )
+			continue;
+		CBasePlayer *pShooter = (CBasePlayer *)pEntity;
+		if( !pShooter->IsAlive() || pShooter->IsObserver() )
+			continue;
+		++shooters;
+
+		// SGTC opposition is the SGTC team (m_iSgtcActiveTeam/m_iSgtcTeam),
+		// not pev->team: every bot shares the same pev->team numbering, so
+		// comparing pev->team never finds an opponent.
+		const int shooterTeam = pShooter->m_iSgtcActiveTeam ?
+			pShooter->m_iSgtcActiveTeam : pShooter->m_iSgtcTeam;
+		CBasePlayer *pTarget = NULL;
+		for( int j = 1; j <= gpGlobals->maxClients; ++j )
+		{
+			CBaseEntity *pCandidateEntity = UTIL_PlayerByIndex( j );
+			if( j == i || !pCandidateEntity || !pCandidateEntity->IsPlayer() ||
+				!FBitSet( pCandidateEntity->pev->flags, FL_FAKECLIENT ) ||
+				!pCandidateEntity->IsAlive() )
+				continue;
+			CBasePlayer *pCandidate = (CBasePlayer *)pCandidateEntity;
+			const int candidateTeam = pCandidate->m_iSgtcActiveTeam ?
+				pCandidate->m_iSgtcActiveTeam : pCandidate->m_iSgtcTeam;
+			if( candidateTeam && candidateTeam != shooterTeam )
+			{
+				pTarget = pCandidate;
+				break;
+			}
+		}
+		if( !pTarget )
+			continue;
+		++paired;
+
+		CBasePlayerWeapon *pZat = NULL;
+		for( int slot = 0; slot < MAX_ITEM_TYPES && !pZat; ++slot )
+			for( CBasePlayerItem *pItem = pShooter->m_rgpPlayerItems[slot]; pItem; pItem = pItem->m_pNext )
+				if( FClassnameIs( pItem->pev, "weapon_zat" ) )
+				{
+					pZat = (CBasePlayerWeapon *)pItem;
+					break;
+				}
+		if( !pZat )
+		{
+			pShooter->GiveNamedItem( "weapon_zat" );
+			for( int slot = 0; slot < MAX_ITEM_TYPES && !pZat; ++slot )
+				for( CBasePlayerItem *pItem = pShooter->m_rgpPlayerItems[slot]; pItem; pItem = pItem->m_pNext )
+					if( FClassnameIs( pItem->pev, "weapon_zat" ) )
+					{
+						pZat = (CBasePlayerWeapon *)pItem;
+						break;
+					}
+		}
+		if( !pZat )
+			continue;
+		++armed;
+
+		pShooter->pev->v_angle = UTIL_VecToAngles( pTarget->pev->origin - pShooter->GetGunPosition() );
+		pShooter->pev->angles = pShooter->pev->v_angle;
+		pShooter->pev->fixangle = TRUE;
+		pShooter->SwitchWeapon( pZat );
+		const float before = pZat->m_flNextPrimaryAttack;
+		pZat->PrimaryAttack();
+		if( pZat->m_flNextPrimaryAttack > before )
+		{
+			++fired;
+			UTIL_LogPrintf( "SGTCEVENT {\"event\":\"bot_zat_fire\",\"shooter\":\"%s\",\"target\":\"%s\",\"time\":%.2f}\n",
+				STRING( pShooter->pev->netname ), STRING( pTarget->pev->netname ), gpGlobals->time );
+		}
+	}
+	// Always report, even when nothing fired: a silent zero made a broken
+	// opponent search indistinguishable from a quiet server.
+	test_out( "SGTCTEST {\"cmd\":\"botzatduel\",\"fired\":%d,\"shooters\":%d,\"paired\":%d,\"armed\":%d,\"time\":%.2f}",
+		fired, shooters, paired, armed, gpGlobals->time );
+}
+
 static void cmd_c4count( void )
 {
 	int nFire = 0;
@@ -914,7 +1018,7 @@ void SGTC_TestFrame( void )
 	{
 		s_test_timed_done = TRUE;
 		test_out( "SGTCTEST {\"cmd\":\"timed_script\",\"state\":\"start\",\"script\":\"%s\"}", pTimed->string );
-		SGTC_TestRunToken( pTimed->string );
+		SGTC_TestCommand( pTimed->string );
 		test_out( "SGTCTEST {\"cmd\":\"timed_script\",\"state\":\"done\"}" );
 	}
 	// Second one-shot script (e.g. gate touch after the DHD chain has dialled).
@@ -925,7 +1029,7 @@ void SGTC_TestFrame( void )
 	{
 		s_test_timed2_done = TRUE;
 		test_out( "SGTCTEST {\"cmd\":\"timed2_script\",\"state\":\"start\",\"script\":\"%s\"}", pTimed2->string );
-		SGTC_TestRunToken( pTimed2->string );
+		SGTC_TestCommand( pTimed2->string );
 		test_out( "SGTCTEST {\"cmd\":\"timed2_script\",\"state\":\"done\"}" );
 	}
 	// Third one-shot script (e.g. ring touch after the window closed).
@@ -936,7 +1040,7 @@ void SGTC_TestFrame( void )
 	{
 		s_test_timed3_done = TRUE;
 		test_out( "SGTCTEST {\"cmd\":\"timed3_script\",\"state\":\"start\",\"script\":\"%s\"}", pTimed3->string );
-		SGTC_TestRunToken( pTimed3->string );
+		SGTC_TestCommand( pTimed3->string );
 		test_out( "SGTCTEST {\"cmd\":\"timed3_script\",\"state\":\"done\"}" );
 	}
 	// Frame-accurate trigger touch for narrow map windows (rings.bsp 10 ms):
@@ -993,7 +1097,7 @@ void SGTC_TestFrame( void )
 		{
 			++s_test_repeat_done;
 			test_out( "SGTCTEST {\"cmd\":\"repeat\",\"step\":%d,\"script\":\"%s\"}", s_test_repeat_done, pRep->string );
-			SGTC_TestRunToken( pRep->string );
+			SGTC_TestCommand( pRep->string );
 			const float flInt = ( pRepInt && pRepInt->value > 0.1f ) ? pRepInt->value : 1.0f;
 			s_test_repeat_next = gpGlobals->time + flInt;
 		}
@@ -1477,6 +1581,19 @@ static void run_line( char *line )
 	else test_out( "SGTCTEST {\"cmd\":\"unknown\",\"line\":\"%s\"}", p );
 }
 
+// One ;-separated part: token table first (firepatchburst, movebot_..., etc.),
+// then the space-separated line table. Both the console route and the timed /
+// repeat scripts come through here so the two tables stay reachable from both.
+static void run_part( char *part )
+{
+	while( *part == ' ' || *part == '\t' ) ++part;
+	char *end = part + strlen( part );
+	while( end > part && ( end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n' ) ) *--end = 0;
+	if( !*part ) return;
+	if( !SGTC_TestRunToken( part ) )
+		run_line( part );
+}
+
 SGTC_TEST_EXPORT void SGTC_TestCommand( const char *line )
 {
 	if( !line ) return;
@@ -1485,7 +1602,7 @@ SGTC_TEST_EXPORT void SGTC_TestCommand( const char *line )
 	// Allow ; separated commands in one line.
 	char *save = buf;
 	for( char *part = next_tok( &save, ";" ); part; part = next_tok( &save, ";" ) )
-		run_line( part );
+		run_part( part );
 }
 
 void SGTC_TestInit( void )
