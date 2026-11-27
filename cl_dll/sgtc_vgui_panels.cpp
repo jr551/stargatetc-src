@@ -1038,7 +1038,7 @@ public:
 	CommandButton *m_pCancelButton;
 	CommandButton *m_pAutoButton;
 	CommandButton *m_pSpecButton;
-	TextPanel *m_pFooter;				// info_equipe.txt
+	CSgtcBriefingView *m_pFooter;			// info_equipe.txt
 	char m_szClassInfo[SGTC_TEAMCLASS_COUNT][SGTC_TEAMCLASS_INFO_LEN];
 	int m_iCurrentClass;
 	int m_iCurrentTeam;
@@ -1323,20 +1323,19 @@ CSgtcTeamClassPanel::CSgtcTeamClassPanel( int iTrans, int iRemoveMe, int x, int 
 	// bottom button strip — created last it swallowed every team/Annuler/
 	// AutoAssign/Spectateur click. Keeping it before the buttons puts it
 	// behind them in both traversal and paint order.
-	m_pFooter = new TextPanel( "", XRES( 40 ), ScreenHeight - YRES( 104 ),
-		ScreenWidth - 2 * XRES( 21 ), YRES( 76 ) + YRES( 10 ) );
+	// Scrollable and word-wrapped like the briefing: a plain TextPanel ran its
+	// long lines past the right edge at 800x600 and 640x480.
+	m_pFooter = new CSgtcBriefingView( XRES( 40 ), ScreenHeight - YRES( 104 ),
+		ScreenWidth - 2 * XRES( 21 ), YRES( 86 ) );
 	m_pFooter->setParent( this );
-	m_pFooter->setFont( pSchemes->getFont( hBriefingText ) );
 	pSchemes->getFgColor( hBriefingText, r, g, b, a );
-	m_pFooter->setFgColor( r, g, b, a );
-	pSchemes->getBgColor( hBriefingText, r, g, b, a );
-	m_pFooter->setBgColor( r, g, b, a );
-	m_pFooter->setText( "Stargate TC , B.I.G. & Endolaylith" );
+	m_pFooter->SetStyle( pSchemes->getFont( hBriefingText ), r, g, b );
+	m_pFooter->SetText( "Stargate TC , B.I.G. & Endolaylith" );
 
 	pfile = SgtcPanels_LoadFile( "info/equipe.txt" );
 	if ( pfile )
 	{
-		m_pFooter->setText( pfile );
+		m_pFooter->SetText( pfile );
 		gEngfuncs.COM_FreeFile( pfile );
 	}
 
