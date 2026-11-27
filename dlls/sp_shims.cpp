@@ -53,6 +53,7 @@
 #include "player.h"
 #include "gamerules.h"
 #include "sgtc_weapons.h"
+#include "sgtc_wpn_c4.h"
 
 // ---------------------------------------------------------------------------
 // SP gate.
@@ -100,7 +101,7 @@ SP_WEAPON_SHIM( CSpShimPistol, CM92s )
 SP_WEAPON_SHIM( CSpShimShotgun, CShotgun )
 SP_WEAPON_SHIM( CSpShimCrossbow, CPsg1 )
 SP_WEAPON_SHIM( CSpShimRpg, CLanceJaffa )
-SP_WEAPON_SHIM( CSpShimSatchel, CSatchel )
+SP_WEAPON_SHIM( CSpShimSatchel, CSgtcC4 )	// the weapon_c4 class: same throw cue; CSatchel behaviour unchanged
 SP_WEAPON_SHIM( CSpShimCrowbar, CBatonSupplice )
 
 // ---------------------------------------------------------------------------
