@@ -46,12 +46,12 @@ void SGTC_MuzzleFx( entvars_t *pev, const Vector &vecSrc, int iBulletType )
 			WRITE_COORD( vecLight.x );
 			WRITE_COORD( vecLight.y );
 			WRITE_COORD( vecLight.z );
-			WRITE_BYTE( 140 );	// radius
+			WRITE_BYTE( 32 );	// radius. Was 140: at close range it washed nearby walls out to white in play.
 			WRITE_BYTE( 255 );
 			WRITE_BYTE( 190 );
 			WRITE_BYTE( 80 );
 			WRITE_BYTE( 1 );	// 0.1 s
-			WRITE_BYTE( 500 );	// decay
+			WRITE_BYTE( 200 );	// decay. A byte, so the old 500 wrapped to 244.
 		MESSAGE_END();
 	}
 
