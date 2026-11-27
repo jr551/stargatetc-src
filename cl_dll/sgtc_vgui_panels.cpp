@@ -2392,6 +2392,12 @@ static void SgtcPanels_QaPanelCommand( void )
 }
 
 // Registered once from the HUD init path.
+static void SgtcPanels_BriefingCommand( void )
+{
+	// Help menu "map description" button (CreateCustomButton, !MAPBRIEFING).
+	SgtcBriefing_ShowPanel();
+}
+
 void SgtcPanels_RegisterClientCommands( void )
 {
 	static bool s_bRegistered = false;
@@ -2401,6 +2407,7 @@ void SgtcPanels_RegisterClientCommands( void )
 
 	gEngfuncs.pfnAddCommand( "sgtc_loadout_done", SgtcPanels_LoadoutDone );
 	gEngfuncs.pfnAddCommand( "sgtc_panel", SgtcPanels_QaPanelCommand );
+	gEngfuncs.pfnAddCommand( "sgtc_briefing", SgtcPanels_BriefingCommand );
 }
 
 void SgtcPanels_HideAll( void )

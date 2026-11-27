@@ -1057,6 +1057,15 @@ CommandButton *TeamFortressViewport::CreateCustomButton( char *pButtonText, char
 		m_iNumMenus++;
 	}
 
+	// Map briefing: open the SGTC briefing panel (VGUIMenu 10) through its
+	// registered client command. Without this branch the CUSTOM "!MAPBRIEFING"
+	// entry in the Help menu returned NULL and was dropped without a message.
+	else if( !strcmp( pButtonName, "!MAPBRIEFING" ) )
+	{
+		pButton = new CommandButton( pButtonText, 0, iYOffset, CMENU_SIZE_X, BUTTON_SIZE_Y );
+		pButton->addActionSignal( new CMenuHandler_StringCommand( "sgtc_briefing" ) );
+	}
+
 	return pButton;
 }
 
