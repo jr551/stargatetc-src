@@ -9,6 +9,7 @@
 #include "gamerules.h"
 #include "soundent.h"
 #include "sgtc_weapons.h"
+#include "sgtc_throwfx.h"
 #include "sgtc_monsters.h"
 
 enum gacgoa_e
@@ -68,6 +69,7 @@ void CGrenadeChoc::Precache( void )
 	PRECACHE_SOUND( "weapons/gacencl.wav" );
 	PRECACHE_SOUND( "common/null.wav" );
 	UTIL_PrecacheOther( "monster_skull" );
+	SGTC_ThrowFxPrecache();
 }
 
 SGTC_GETITEM( CGrenadeChoc, SGTC_AMMO_GACG, 4, WEAPON_NOCLIP, 5, 4, SGTC_WPN_GACGOA, 24, 10 )
@@ -298,6 +300,7 @@ void CGrenadeChoc::WeaponIdle( void )	// ref @0xfecd4
 		SendWeaponAnim( GACGOA_THROW3 );
 
 	m_pPlayer->SetAnimation( PLAYER_ATTACK1 );	// ref SetAnimation(player,6)
+	SGTC_PlayThrowFx( m_pPlayer, vecSrc, flVel / 1000.0f );
 	// ref emits NO gacgoa.wav here (sound is precached but not emitted in WeaponIdle)
 
 	m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType]--;

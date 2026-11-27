@@ -27,12 +27,23 @@ void CMedicxgoa::Spawn( void )
 	FallInit();
 }
 
+// events/goaregen.sc: a green regen puff where the regen lands, on the healed
+// player or, if there is none, on the shooter.
+static unsigned short s_usGoaRegenFx = 0;
+static void SGTC_GoaRegenFx( CBasePlayer *pPlayer, const Vector &vecAt )
+{
+	float origin[3] = { vecAt.x, vecAt.y, vecAt.z };
+	PLAYBACK_EVENT_FULL( SGTC_EVENT_FLAGS, pPlayer->edict(), s_usGoaRegenFx,
+		0.0, origin, (float *)&g_vecZero, 0.0f, 0.0f, 0, 0, 0, 0 );
+}
+
 void CMedicxgoa::Precache( void )
 {
 	PRECACHE_MODEL( "models/v_goaregen.mdl" );
 	PRECACHE_MODEL( "models/w_goaregen.mdl" );
 	PRECACHE_MODEL( "models/p_goaregen.mdl" );
 	PRECACHE_SOUND( "weapons/goaregen.wav" );
+	s_usGoaRegenFx = PRECACHE_EVENT( 1, "events/goaregen.sc" );
 }
 
 SGTC_GETITEM( CMedicxgoa, SGTC_AMMO_GOAREGEN, 150, WEAPON_NOCLIP, 3, 4, SGTC_WPN_GOAREGEN, 0, 0 )
@@ -90,6 +101,7 @@ void CMedicxgoa::PrimaryAttack( void )	// ref @0x1069f4
 	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_WEAPON, "weapons/goaregen.wav", 1.0, ATTN_NORM );
 
 	CBaseEntity *pHit = CBaseEntity::Instance( tr.pHit );
+	SGTC_GoaRegenFx( m_pPlayer, ( pHit && pHit->IsPlayer() ) ? pHit->pev->origin : m_pPlayer->pev->origin );
 	if( pHit && pHit->IsPlayer() )
 	{
 		CBasePlayer *pTarget = (CBasePlayer *)pHit;

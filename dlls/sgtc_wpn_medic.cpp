@@ -22,12 +22,23 @@ void CMedicx::Spawn( void )
 	FallInit();
 }
 
+// events/medic.sc: iparam1 1 is a heal (a green puff at the target), 2 is poison
+// (violet). A self heal sends the shooter's own origin.
+static unsigned short s_usMedicFx = 0;
+static void SGTC_MedicFx( CBasePlayer *pPlayer, const Vector &vecAt, int iKind )
+{
+	float origin[3] = { vecAt.x, vecAt.y, vecAt.z };
+	PLAYBACK_EVENT_FULL( SGTC_EVENT_FLAGS, pPlayer->edict(), s_usMedicFx,
+		0.0, origin, (float *)&g_vecZero, 0.0f, 0.0f, iKind, 0, 0, 0 );
+}
+
 void CMedicx::Precache( void )
 {
 	PRECACHE_MODEL( "models/v_medic.mdl" );
 	PRECACHE_MODEL( "models/w_medkit.mdl" );
 	PRECACHE_MODEL( "models/p_medic.mdl" );
 	PRECACHE_SOUND( "weapons/medic.wav" );
+	s_usMedicFx = PRECACHE_EVENT( 1, "events/medic.sc" );
 }
 
 SGTC_GETITEM( CMedicx, SGTC_AMMO_MEDGOO, 200, WEAPON_NOCLIP, 6, 0, SGTC_WPN_MEDIC, 0, 1 )
@@ -94,6 +105,7 @@ void CMedicx::PrimaryAttack( void )	// ref @0x10bd00
 		if( bApplied )
 		{
 			EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_WEAPON, "weapons/medic.wav", 1.0f, 0.8f );
+			SGTC_MedicFx( m_pPlayer, pTarget->pev->origin, ( pTarget->pev->team == m_pPlayer->pev->team ) ? 1 : 2 );
 			m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType] -= iHeal;
 			if( m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType] < 0 )
 				m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType] = 0;
@@ -130,6 +142,7 @@ void CMedicx::SecondaryAttack( void )	// ref @0x10c17a
 
 	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_WEAPON, "weapons/medic.wav", 1.0f, 0.8f );
 	m_pPlayer->TakeHealth( (float)iHeal, DMG_GENERIC );
+	SGTC_MedicFx( m_pPlayer, m_pPlayer->pev->origin, 1 );
 	m_pPlayer->m_iStamina = 100;
 	m_pPlayer->SGTC_UpdateStamina();
 	m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType] -= iHeal;

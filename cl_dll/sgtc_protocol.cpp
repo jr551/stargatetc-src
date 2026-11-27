@@ -251,7 +251,10 @@ extern "C"
 	X( EV_SGTC_ZatA, "events/zata.sc" ) \
 	X( EV_SGTC_ZatArc, "events/zatarc.sc" ) \
 	X( EV_SGTC_ZatB, "events/zatb.sc" ) \
-	X( EV_SGTC_Zat, "events/zat.sc" )
+	X( EV_SGTC_Zat, "events/zat.sc" ) \
+	X( EV_SGTC_Throw, "events/throw.sc" ) \
+	X( EV_SGTC_Medic, "events/medic.sc" ) \
+	X( EV_SGTC_GoaRegen, "events/goaregen.sc" )
 
 #define X( fn, script ) void fn( struct event_args_s *args );
 SGTC_EV_LIST
@@ -1335,6 +1338,90 @@ void EV_SGTC_BeamStop( struct event_args_s *args )
 // ref 0x10008e0e — shield: EMPTY body in ref
 void EV_SGTC_Shield( struct event_args_s *args )
 {
+}
+
+// Puffs for the medic and goaregen events: a short burst of additive sprites,
+// tinted per event, drifting up from the origin.
+static void SGTC_PuffBurst( const float *origin, int mdl, float r, float g, float b, float flRise, int iCount )
+{
+	int i;
+
+	for( i = 0; i < iCount; i++ )
+	{
+		vec3_t at, vel;
+		TEMPENTITY *pt;
+
+		at[0] = origin[0] + gEngfuncs.pfnRandomFloat( -6.0f, 6.0f );
+		at[1] = origin[1] + gEngfuncs.pfnRandomFloat( -6.0f, 6.0f );
+		at[2] = origin[2] + gEngfuncs.pfnRandomFloat( -4.0f, 8.0f );
+		vel[0] = gEngfuncs.pfnRandomFloat( -8.0f, 8.0f );
+		vel[1] = gEngfuncs.pfnRandomFloat( -8.0f, 8.0f );
+		vel[2] = flRise;
+
+		pt = gEngfuncs.pEfxAPI->R_TempSprite( at, vel, 0.2f, mdl, kRenderTransAdd,
+			kRenderFxNoDissipation, 0.8f, 0.6f, FTENT_FADEOUT );
+		if( pt )
+		{
+			pt->entity.curstate.rendercolor.r = (byte)r;
+			pt->entity.curstate.rendercolor.g = (byte)g;
+			pt->entity.curstate.rendercolor.b = (byte)b;
+		}
+	}
+}
+
+// Shared throw (events/throw.sc): flashbang, gacgoa, couteau and C4. fparam1 is the
+// release strength, 0..1. Everyone hears a whoosh at the release point; the thrower
+// gets a small kick, a little more on a hard throw.
+void EV_SGTC_Throw( struct event_args_s *args )
+{
+	int idx = args->entindex;
+	vec3_t origin;
+	static const char *sounds[3] =
+	{
+		"weapons/swing1.wav",
+		"weapons/swing2.wav",
+		"weapons/swing3.wav"
+	};
+	float flStrength = args->fparam1;
+
+	VectorCopy( args->origin, origin );
+
+	if( EV_IsLocal( idx ) )
+		V_PunchAxis( 0, -( 0.5f + flStrength ) );
+
+	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON,
+		sounds[gEngfuncs.pfnRandomLong( 0, 2 )],
+		0.5f + 0.3f * flStrength, 0.8f, 0, 98 + gEngfuncs.pfnRandomLong( 0, 7 ) );
+}
+
+// Medic (events/medic.sc): iparam1 1 is a heal, a green burst at the target; 2 is
+// poison, a violet burst. A self heal sends the shooter's own origin.
+void EV_SGTC_Medic( struct event_args_s *args )
+{
+	vec3_t origin;
+	int mdl;
+
+	VectorCopy( args->origin, origin );
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/steam1.spr" );
+	if( mdl <= 0 )
+		return;
+
+	if( args->iparam1 == 2 )
+		SGTC_PuffBurst( origin, mdl, 200.0f, 90.0f, 255.0f, 14.0f, 4 );
+	else
+		SGTC_PuffBurst( origin, mdl, 90.0f, 255.0f, 120.0f, 24.0f, 4 );
+}
+
+// Goaregen (events/goaregen.sc): a green regen puff where the regen lands.
+void EV_SGTC_GoaRegen( struct event_args_s *args )
+{
+	vec3_t origin;
+	int mdl;
+
+	VectorCopy( args->origin, origin );
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/steam1.spr" );
+	if( mdl > 0 )
+		SGTC_PuffBurst( origin, mdl, 120.0f, 255.0f, 150.0f, 28.0f, 5 );
 }
 
 // zat.sc is NOT hooked by ref Game_HookEvents — keep the old fallback stub.
