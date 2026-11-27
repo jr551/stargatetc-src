@@ -1203,6 +1203,16 @@ void EV_SGTC_Tac( struct event_args_s *args )
 
 	gEngfuncs.pEfxAPI->R_BeamEntPoint( idx | 0x1000, tr.endpos, mdl,
 		0.1f, 1.0f, 0, 128.0f, 0, 0, 0, 255.0f, 0, 0 );
+
+	// A dot where the laser lands, so the aim point reads at range. Only on a
+	// real hit: a miss would put the dot in mid-air at the 600-unit limit.
+	if( tr.fraction < 1.0f )
+	{
+		int dot = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/lazerdot.spr" );
+		if( dot > 0 )
+			gEngfuncs.pEfxAPI->R_TempSprite( tr.endpos, vec3_origin, 0.25f, dot,
+				kRenderGlow, kRenderFxNoDissipation, 1.0f, 0.1f, FTENT_FADEOUT );
+	}
 }
 
 // ref 0x10009e21 — larve: local duck-offset hull trace + anim(5,0)
@@ -1376,6 +1386,7 @@ static const char *const s_sgtcClientSprites[] =
 {
 	"sprites/handtir.spr",
 	"sprites/lazer.spr",
+	"sprites/lazerdot.spr",
 	"sprites/Muz1.spr",
 	"sprites/rain.spr",
 	"sprites/snow.spr",
