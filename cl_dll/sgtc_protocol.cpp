@@ -1191,7 +1191,7 @@ void EV_SGTC_Tac( struct event_args_s *args )
 	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/lazer.spr" );
 
 	gEngfuncs.pEfxAPI->R_BeamEntPoint( idx | 0x1000, tr.endpos, mdl,
-		0.1f, 1.0f, 0, 128.0f, 0, 0, 0, 255.0f, 0, 0 );
+		0.1f, 3.0f, 0, 220.0f, 0, 0, 0, 255.0f, 0, 0 );	// width 3 and brightness 220: at 1 unit the laser was a pixel line and read as nothing
 
 	// A dot where the laser lands, so the aim point reads at range. Only on a
 	// real hit: a miss would put the dot in mid-air at the 600-unit limit.
