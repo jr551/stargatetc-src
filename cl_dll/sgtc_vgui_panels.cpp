@@ -607,20 +607,12 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	// builds two variants (asm @0x100400b5): W < 0x400 (low-res) uses
 	// x=X(320)-X(62), y=H-Y(40)-Y(12)+5, w=X(124), h=Y(24)-10; the wide variant
 	// uses y=H-Y(40)-Y(12), h=Y(24) with the same x/w.
-	const int iOkX = XRES( 320 ) - XRES( 62 );
-	const int iOkW = XRES( 124 );
-	int iOkY;
-	int iOkH;
-	if ( ScreenWidth < 0x400 )
-	{
-		iOkY = ScreenHeight - YRES( 40 ) - YRES( 12 ) + 5;
-		iOkH = YRES( 24 ) - 10;
-	}
-	else
-	{
-		iOkY = ScreenHeight - YRES( 40 ) - YRES( 12 );
-		iOkH = YRES( 24 );
-	}
+	// OK button, sized in proportion to the briefing panel. The ref geometry
+	// (124x24 units, two low/wide variants) read as a thin strip under the frame.
+	const int iOkW = XRES( 200 );
+	const int iOkH = YRES( 28 );
+	const int iOkX = ScreenWidth / 2 - iOkW / 2;
+	const int iOkY = ScreenHeight - YRES( 40 ) - YRES( 12 );
 
 	m_pOKButton = new CommandButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Ok" ) ),
 		iOkX, iOkY, iOkW, iOkH );
