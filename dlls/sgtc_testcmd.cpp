@@ -384,6 +384,8 @@ static void cmd_firepatchburst( void );
 static void cmd_botzatduel( void );
 static void cmd_botkill( void );
 static void cmd_wepfireall( void );
+static void cmd_grenadethrow( void );
+static void cmd_grenadethrowcheck( void );
 static void cmd_reetoutest( void );
 static void cmd_c4detonate( void );
 static void cmd_hazardenable( const char *pszStateId );
@@ -573,6 +575,10 @@ static int SGTC_TestRunToken( const char *pszToken )
 		cmd_botkill();
 	else if( !strcmp( pszToken, "wepfireall" ) )
 		cmd_wepfireall();
+	else if( !strcmp( pszToken, "grenadethrow" ) )
+		cmd_grenadethrow();
+	else if( !strcmp( pszToken, "grenadethrowcheck" ) )
+		cmd_grenadethrowcheck();
 	else if( !strcmp( pszToken, "c4drop" ) )
 		cmd_c4drop();
 	else if( !strcmp( pszToken, "reetoutest" ) )
@@ -1164,6 +1170,59 @@ static void cmd_wepfireall( void )
 	s_wepfireSecondary += roundSecondary;
 	test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"cursor\":%d,\"total\":%d,\"round_given\":%d,\"round_primary\":%d,\"round_secondary\":%d,\"self_killed\":%d,\"time\":%.2f}",
 		s_wepfireCursor, total, roundGiven, roundPrimary, roundSecondary, (int)bKilled, gpGlobals->time );
+}
+
+// Throw check for the handgrenade: pin it with the first live bot, then a later
+// command reports whether the grenade was thrown (ammo down, a grenade entity in
+// the world). Release is the bot's own button state, so this may stay pinned.
+static CBasePlayer *s_grenadeShooter = NULL;
+static int s_grenadeAmmoBefore = -1;
+
+static void cmd_grenadethrow( void )
+{
+	CBasePlayer *p = SGTC_WepFireShooter();
+	if( !p )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrow\",\"shooter\":0}" );
+		return;
+	}
+	CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( p, "weapon_handgrenade" );
+	if( !pWep )
+	{
+		p->GiveNamedItem( "weapon_handgrenade" );
+		pWep = SGTC_FindWeaponByClass( p, "weapon_handgrenade" );
+	}
+	if( !pWep )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrow\",\"given\":0}" );
+		return;
+	}
+	p->SwitchWeapon( pWep );
+	p->m_rgAmmo[pWep->m_iPrimaryAmmoType] = 3;
+	s_grenadeShooter = p;
+	s_grenadeAmmoBefore = p->m_rgAmmo[pWep->m_iPrimaryAmmoType];
+	pWep->m_flNextPrimaryAttack = 0.0f;
+	pWep->PrimaryAttack();
+	test_out( "SGTCTEST {\"cmd\":\"grenadethrow\",\"given\":1,\"ammo\":%d,\"start_throw\":%.2f,\"time\":%.2f}",
+		s_grenadeAmmoBefore, pWep->m_flStartThrow, gpGlobals->time );
+}
+
+static void cmd_grenadethrowcheck( void )
+{
+	CBasePlayer *p = s_grenadeShooter;
+	if( !p )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowcheck\",\"shooter\":0}" );
+		return;
+	}
+	CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( p, "weapon_handgrenade" );
+	int nGrenades = 0;
+	CBaseEntity *pEnt = NULL;
+	while( ( pEnt = UTIL_FindEntityByClassname( pEnt, "grenade" ) ) != NULL )
+		++nGrenades;
+	test_out( "SGTCTEST {\"cmd\":\"grenadethrowcheck\",\"ammo_before\":%d,\"ammo_after\":%d,\"start_throw\":%.2f,\"grenades_in_world\":%d,\"alive\":%d,\"time\":%.2f}",
+		s_grenadeAmmoBefore, pWep ? p->m_rgAmmo[pWep->m_iPrimaryAmmoType] : -1,
+		pWep ? pWep->m_flStartThrow : -1.0f, nGrenades, (int)p->IsAlive(), gpGlobals->time );
 }
 
 static void cmd_c4count( void )
