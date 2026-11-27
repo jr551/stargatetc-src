@@ -437,18 +437,11 @@ void EV_SGTC_Usas( struct event_args_s *args )
 
 	VectorCopy( forward, vecAiming );
 
-	if( gEngfuncs.GetMaxClients() < 2 )	// single player
-	{
-		EV_HLDM_FireBullets( idx, forward, right, up, 6, vecSrc, vecAiming,
-			2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
-			0.08716f, 0.08716f );
-	}
-	else
-	{
-		EV_HLDM_FireBullets( idx, forward, right, up, 4, vecSrc, vecAiming,
-			2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
-			0.08716f, 0.04362f );
-	}
+	// The server fires 8 pellets, 5 degrees, 1024 units (wpn_usas FireBulletsPlayer).
+	// The client drew 6 or 4 at 2048, so decals landed where no pellet did.
+	EV_HLDM_FireBullets( idx, forward, right, up, 8, vecSrc, vecAiming,
+		1024.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
+		0.08716f, 0.08716f );
 }
 
 // ref 0x1000765b — spas (identical to usas but anim 1)
@@ -487,18 +480,11 @@ void EV_SGTC_Spas( struct event_args_s *args )
 
 	VectorCopy( forward, vecAiming );
 
-	if( gEngfuncs.GetMaxClients() < 2 )
-	{
-		EV_HLDM_FireBullets( idx, forward, right, up, 6, vecSrc, vecAiming,
-			2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
-			0.08716f, 0.08716f );
-	}
-	else
-	{
-		EV_HLDM_FireBullets( idx, forward, right, up, 4, vecSrc, vecAiming,
-			2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
-			0.08716f, 0.04362f );
-	}
+	// The server fires 8 pellets in VECTOR_CONE_DM_SHOTGUN at 2048 units (shotgun.cpp).
+	// The client drew 6 in single player and 4 otherwise, so the decals did not match the pellets.
+	EV_HLDM_FireBullets( idx, forward, right, up, 8, vecSrc, vecAiming,
+		2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
+		0.08716f, 0.04362f );
 }
 
 // ref 0x1000740b — spas2 pump: shell eject only, no sound/muzzle/fire
