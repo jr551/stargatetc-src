@@ -306,7 +306,7 @@ void CStargateTeamCP::InitHUD( CBasePlayer *pPlayer )
 void CStargateTeamDM::UpdateGameMode( CBasePlayer *pPlayer )
 {
 	MESSAGE_BEGIN( MSG_ONE, gmsgGameMode, NULL, pPlayer->edict() );
-		WRITE_BYTE( 1 ); // teamplay
+		WRITE_BYTE( 2 ); // 2 = Deathmatch (client briefing and rich presence); 1 was "teamplay"
 	MESSAGE_END();
 	MESSAGE_BEGIN( MSG_ONE, gmsgTicketMode, NULL, pPlayer->edict() );
 		WRITE_BYTE( 0 ); // DM: no tickets
