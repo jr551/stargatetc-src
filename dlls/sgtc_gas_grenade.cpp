@@ -10,6 +10,7 @@
 #include "sgtc_gas_grenade.h"
 #include "sgtc_weapons.h"
 #include "soundent.h"
+#include "sgtc_throwfx.h"
 
 short g_sModelIndexSgtcMustard = 0;
 short g_sModelIndexSgtcNarco = 0;
@@ -356,6 +357,7 @@ void CSGTCGasGrenadeWeapon::SGTC_GasWeaponIdle( int iWeaponId, SGTC_GasType gasT
 			time = 0.0f;
 
 #ifndef CLIENT_DLL
+		SGTC_PlayThrowFx( m_pPlayer, vecSrc, flVel / 1000.0f, iWeaponId );	// the throw cue, as for the other grenades
 		CSGTCGasCloud *pNade = SGTC_ShootGasGrenade( m_pPlayer->pev, vecSrc, vecThrow,
 			time, pszWorldModel, gasType, flDmg );
 		if( pNade )
