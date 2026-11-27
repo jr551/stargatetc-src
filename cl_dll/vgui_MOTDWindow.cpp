@@ -30,14 +30,8 @@
 #include "vgui_int.h"
 #include "vgui_TeamFortressViewport.h"
 #include "l10n.h"
-
-#define MOTD_TITLE_X				XRES(16)
-#define MOTD_TITLE_Y				YRES(16)
-
-#define MOTD_WINDOW_X				XRES(112)
-#define MOTD_WINDOW_Y				YRES(80)
-#define MOTD_WINDOW_SIZE_X			XRES(424)
-#define MOTD_WINDOW_SIZE_Y			YRES(312)
+#include "sgtc_vgui.h"
+#include "sgtc_vgui_button.h"
 
 //-----------------------------------------------------------------------------
 // Purpose: Displays the MOTD and basic server information
@@ -75,32 +69,47 @@ CMessageWindowPanel::CMessageWindowPanel( const char *szMOTD, const char *szTitl
 	// color schemes
 	int r, g, b, a;
 
+	// Window: a card centred on the screen, sized in layout pixels (SgtcLayout_S)
+	// so it keeps its proportions at any resolution. Blue frame, as on the other
+	// SGTC menus (the stock window used an orange frame). CTransparentPanel's
+	// value is transparency (0 would skip the fill), so 48 is a dark fill about
+	// 80% opaque; the stock 255 left the text floating over the game.
+	int iWinW = SgtcLayout_S( 640 );
+	if ( iWinW > wide - 2 * SgtcLayout_S( 24 ) )
+		iWinW = wide - 2 * SgtcLayout_S( 24 );
+	int iWinH = SgtcLayout_S( 440 );
+	if ( iWinH > tall - 2 * SgtcLayout_S( 24 ) )
+		iWinH = tall - 2 * SgtcLayout_S( 24 );
+	const int iWinX = x + ( wide - iWinW ) / 2;
+	const int iWinY = y + ( tall - iWinH ) / 2;
+
 	// Create the window
-	m_pBackgroundPanel = new CTransparentPanel( iShadeFullscreen ? 255 : 100, MOTD_WINDOW_X, MOTD_WINDOW_Y, MOTD_WINDOW_SIZE_X, MOTD_WINDOW_SIZE_Y );
+	m_pBackgroundPanel = new CTransparentPanel( iShadeFullscreen ? 48 : 100, iWinX, iWinY, iWinW, iWinH );
 	m_pBackgroundPanel->setParent( this );
-	m_pBackgroundPanel->setBorder( new LineBorder( Color( 255 * 0.7, 170 * 0.7, 0, 0 ) ) );
+	m_pBackgroundPanel->setBorder( new LineBorder( Color( 0, 0, 255, 0 ) ) );
 	m_pBackgroundPanel->setVisible( true );
 
-	int iXSize,iYSize,iXPos,iYPos;
-	m_pBackgroundPanel->getPos( iXPos, iYPos );
-	m_pBackgroundPanel->getSize( iXSize, iYSize );
-
-	// Create the title
-	Label *pLabel = new Label( "", iXPos + MOTD_TITLE_X, iYPos + MOTD_TITLE_Y );
+	// Title, centred across the top of the window. The title font is the scheme's
+	// own title font (the stock code overrode it with the 15pt button font).
+	Label *pLabel = new Label( "", iWinX, iWinY + SgtcLayout_S( 14 ), iWinW, SgtcLayout_S( 30 ) );
 	pLabel->setParent( this );
 	pLabel->setFont( pSchemes->getFont( hTitleScheme ) );
-	pLabel->setFont( Scheme::sf_primary1 );
+	pLabel->setFgColor( 0x8c, 0x8c, 0xf0, 0 );
+	pLabel->setPaintBackgroundEnabled( false );
+	pLabel->setContentAlignment( vgui::Label::a_center );
+	pLabel->setText( "%s", szTitle );
 
-	pSchemes->getFgColor( hTitleScheme, r, g, b, a );
-	pLabel->setFgColor( r, g, b, a );
-	pLabel->setFgColor( Scheme::sc_primary1 );
-	pSchemes->getBgColor( hTitleScheme, r, g, b, a );
-	pLabel->setBgColor( r, g, b, a );
-	pLabel->setContentAlignment( vgui::Label::a_west );
-	pLabel->setText( "%s", szTitle);
+	// Scroll area between the title and the OK button, inset from the frame.
+	const int iBtnW = SgtcLayout_S( 200 );
+	const int iBtnH = SgtcLayout_S( 40 );
+	const int iBtnY = iWinY + iWinH - SgtcLayout_S( 16 ) - iBtnH;
+	const int iScrollX = iWinX + SgtcLayout_S( 24 );
+	const int iScrollY = iWinY + SgtcLayout_S( 60 );
+	const int iScrollW = iWinW - 2 * SgtcLayout_S( 24 );
+	const int iScrollH = iBtnY - SgtcLayout_S( 12 ) - iScrollY;
 
 	// Create the Scroll panel
-	ScrollPanel *pScrollPanel = new CTFScrollPanel( iXPos + XRES( 16 ), iYPos + MOTD_TITLE_Y * 2 + YRES( 16 ), iXSize - XRES( 32 ), iYSize - ( YRES( 48 ) + BUTTON_SIZE_Y * 2 ) );
+	ScrollPanel *pScrollPanel = new CTFScrollPanel( iScrollX, iScrollY, iScrollW, iScrollH );
 	pScrollPanel->setParent( this );
 
 	// force the scrollbars on so clientClip will take them in account after the validate
@@ -112,10 +121,10 @@ CMessageWindowPanel::CMessageWindowPanel( const char *szMOTD, const char *szTitl
 	TextPanel *pText = new TextPanel( "", 0, 0, 64, 64 );
 	pText->setParent( pScrollPanel->getClient() );
 
-	// get the font and colors from the scheme
+	// Font from the scheme; colour is the SGTC blue, because the scheme's own
+	// (0,0,200) is too dark to read on black.
 	pText->setFont( pSchemes->getFont( hMOTDText ) );
-	pSchemes->getFgColor( hMOTDText, r, g, b, a );
-	pText->setFgColor( r, g, b, a );
+	pText->setFgColor( 0x55, 0x73, 0xb9, 0 );
 	pSchemes->getBgColor( hMOTDText, r, g, b, a );
 	pText->setBgColor( r, g, b, a );
 	pText->setText( szMOTD );
@@ -129,7 +138,7 @@ CMessageWindowPanel::CMessageWindowPanel( const char *szMOTD, const char *szTitl
 	//  specified width.
 	pText->getTextImage()->setSize( pScrollPanel->getClientClip()->getWide(), pScrollPanel->getClientClip()->getTall() );
 	pText->getTextImage()->getTextSizeWrapped( iScrollSizeX, iScrollSizeY );
-	
+
 	// Now resize the textpanel to fit the scrolled size
 	pText->setSize( iScrollSizeX, iScrollSizeY );
 
@@ -139,7 +148,10 @@ CMessageWindowPanel::CMessageWindowPanel( const char *szMOTD, const char *szTitl
 
 	pScrollPanel->validate();
 
-	CommandButton *pButton = new CommandButton( L10n_ToLegacy( CHudTextMessage::BufferedLocaliseTextString( "#Menu_OK" ) ), iXPos + XRES( 16 ), iYPos + iYSize - YRES( 16 ) - BUTTON_SIZE_Y, CMENU_SIZE_X, BUTTON_SIZE_Y );
+	// OK button, centred under the text. No key prefix, so the label is centred.
+	CommandButton *pButton = new CSgtcMenuButton( L10n_ToLegacy( CHudTextMessage::BufferedLocaliseTextString( "#Menu_OK" ) ), iWinX + ( iWinW - iBtnW ) / 2, iBtnY, iBtnW, iBtnH );
+	pButton->setBoundKey( (char)255 );
+	pButton->setContentAlignment( vgui::Label::a_center );
 	pButton->addActionSignal( new CMenuHandler_TextWindow( HIDE_TEXTWINDOW ) );
 	pButton->setParent( this );
 }
