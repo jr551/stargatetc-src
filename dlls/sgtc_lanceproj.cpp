@@ -228,7 +228,7 @@ void CSGTCProjBase::EffectThink( void )
 			WRITE_COORD( pev->origin.x );
 			WRITE_COORD( pev->origin.y );
 			WRITE_COORD( pev->origin.z );
-			WRITE_BYTE( 180 );
+			WRITE_BYTE( 72 );	// radius. Was 180: the bolt starts at the muzzle and washed the near rocks out.
 			WRITE_BYTE( 255 );
 			WRITE_BYTE( 180 );
 			WRITE_BYTE( 60 );
