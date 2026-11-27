@@ -1328,8 +1328,8 @@ CSgtcTeamClassPanel::CSgtcTeamClassPanel( int iTrans, int iRemoveMe, int x, int 
 	m_pFooter = new CSgtcBriefingView( XRES( 40 ), ScreenHeight - YRES( 104 ),
 		ScreenWidth - 2 * XRES( 21 ), YRES( 86 ) );
 	m_pFooter->setParent( this );
-	pSchemes->getFgColor( hBriefingText, r, g, b, a );
-	m_pFooter->SetStyle( pSchemes->getFont( hBriefingText ), r, g, b );
+	// Briefing text colour, not the scheme value (dark blue on the navy card).
+	m_pFooter->SetStyle( pSchemes->getFont( hBriefingText ), 0x55, 0x73, 0xb9 );
 	m_pFooter->SetText( "Stargate TC , B.I.G. & Endolaylith" );
 
 	pfile = SgtcPanels_LoadFile( "info/equipe.txt" );
