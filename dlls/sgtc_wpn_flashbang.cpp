@@ -153,7 +153,7 @@ void CFlashBang::WeaponIdle( void )
 			SendWeaponAnim( FLASHBANG_THROW3 );
 
 		m_pPlayer->SetAnimation( PLAYER_ATTACK1 );
-		SGTC_PlayThrowFx( m_pPlayer, vecSrc, flVel / 1000.0f );
+		SGTC_PlayThrowFx( m_pPlayer, vecSrc, flVel / 1000.0f, SGTC_WPN_FLASHBANG );
 
 		m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType]--;
 		m_flStartThrow = 0.0f;

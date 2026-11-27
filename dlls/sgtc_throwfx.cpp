@@ -20,7 +20,7 @@ void SGTC_ThrowFxPrecache( void )
 	s_bThrowPrecached = TRUE;
 }
 
-void SGTC_PlayThrowFx( CBasePlayer *pPlayer, const Vector &vecOrigin, float flStrength )
+void SGTC_PlayThrowFx( CBasePlayer *pPlayer, const Vector &vecOrigin, float flStrength, int iWeaponId )
 {
 	if( !pPlayer || !s_bThrowPrecached )
 		return;
@@ -31,7 +31,7 @@ void SGTC_PlayThrowFx( CBasePlayer *pPlayer, const Vector &vecOrigin, float flSt
 
 	float origin[3] = { vecOrigin.x, vecOrigin.y, vecOrigin.z };
 	PLAYBACK_EVENT_FULL( SGTC_EVENT_FLAGS, pPlayer->edict(), s_usThrow,
-		0.0, origin, (float *)&g_vecZero, flStrength, 0.0f, 0, 0, 0, 0 );
+		0.0, origin, (float *)&g_vecZero, flStrength, 0.0f, iWeaponId, 0, 0, 0 );
 }
 
 // The stock handgrenade (handgrenade.cpp, left unedited) plays no event on a
@@ -71,7 +71,7 @@ void SGTC_ThrowFx_Frame( void )
 			const int iIdx = pWeapon->m_iPrimaryAmmoType;
 			const int iAmmo = pPlayer->m_rgAmmo[iIdx];
 			if( s_iHgAmmo[i] >= 0 && iAmmo < s_iHgAmmo[i] )
-				SGTC_PlayThrowFx( pPlayer, pPlayer->GetGunPosition(), 0.5f );
+				SGTC_PlayThrowFx( pPlayer, pPlayer->GetGunPosition(), 0.5f, SGTC_WPN_HANDGRENADE );
 			s_iHgAmmo[i] = iAmmo;
 			s_iHgAmmoIdx[i] = iIdx;
 		}
@@ -80,7 +80,7 @@ void SGTC_ThrowFx_Frame( void )
 			// The grenade left our hands this frame: its ammo may have dropped on
 			// the way out, so compare once more with the index kept from last frame.
 			if( pPlayer && pPlayer->m_rgAmmo[s_iHgAmmoIdx[i]] < s_iHgAmmo[i] )
-				SGTC_PlayThrowFx( pPlayer, pPlayer->GetGunPosition(), 0.5f );
+				SGTC_PlayThrowFx( pPlayer, pPlayer->GetGunPosition(), 0.5f, SGTC_WPN_HANDGRENADE );
 			s_iHgAmmo[i] = -1;
 		}
 	}

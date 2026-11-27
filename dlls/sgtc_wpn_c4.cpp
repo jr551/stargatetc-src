@@ -23,5 +23,5 @@ void CSgtcC4::PrimaryAttack( void )
 	const int iBefore = m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType];
 	CSatchel::PrimaryAttack();
 	if( m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType] < iBefore )
-		SGTC_PlayThrowFx( m_pPlayer, m_pPlayer->GetGunPosition(), 0.5f );
+		SGTC_PlayThrowFx( m_pPlayer, m_pPlayer->GetGunPosition(), 0.5f, SGTC_WPN_SATCHEL );
 }

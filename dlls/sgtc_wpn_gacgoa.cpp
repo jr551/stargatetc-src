@@ -300,7 +300,7 @@ void CGrenadeChoc::WeaponIdle( void )	// ref @0xfecd4
 		SendWeaponAnim( GACGOA_THROW3 );
 
 	m_pPlayer->SetAnimation( PLAYER_ATTACK1 );	// ref SetAnimation(player,6)
-	SGTC_PlayThrowFx( m_pPlayer, vecSrc, flVel / 1000.0f );
+	SGTC_PlayThrowFx( m_pPlayer, vecSrc, flVel / 1000.0f, SGTC_WPN_GACGOA );
 	// ref emits NO gacgoa.wav here (sound is precached but not emitted in WeaponIdle)
 
 	m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType]--;

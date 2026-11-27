@@ -340,7 +340,7 @@ void CCouteau::ThrowIt( void )	// ref @0xd65b2
 
 	// ref: instant trace GetGunPosition → +v_forward*1100, then drops a
 	// weapon_couteau pickup at the hit point (NO flying bolt entity).
-	SGTC_PlayThrowFx( m_pPlayer, vecSrc, 0.6f );
+	SGTC_PlayThrowFx( m_pPlayer, vecSrc, 0.6f, SGTC_WPN_COUTEAU );
 
 	TraceResult tr;
 	UTIL_TraceLine( vecSrc, vecSrc + gpGlobals->v_forward * 1100.0f,
