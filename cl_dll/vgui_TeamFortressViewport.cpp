@@ -687,14 +687,14 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 
 		// Now start parsing the menu structure
 		m_pCurrentCommandMenu = m_pCommandMenus[newIndex];
-		char szLastButtonText[32] = "file start";
+		char szLastButtonText[MAX_BUTTON_SIZE] = "file start";
 		char* pfile = gEngfuncs.COM_ParseFile( pFileStart, token );
 		while( ( strlen ( token ) > 0 ) && ( m_iNumMenus < MAX_MENUS ) )
 		{
 			// Keep looping until we hit the end of this menu
 			while( token[0] != '}' && ( strlen( token ) > 0 ) )
 			{
-				char cText[32] = "";
+				char cText[MAX_BUTTON_SIZE] = "";
 				char cBoundKey[32] = "";
 				char cCustom[32] = "";
 				static const int cCommandLength = 128;
@@ -764,7 +764,7 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 
 				// Get the button text
 				pfile = gEngfuncs.COM_ParseFile( pfile, token );
-				strlcpy( cText, L10n_ToLegacy( CHudTextMessage::BufferedLocaliseTextString( token ) ), 32 );	// Vit_amiN: localize button text
+				strlcpy( cText, L10n_ToLegacy( CHudTextMessage::BufferedLocaliseTextString( token ) ), sizeof( cText ));	// Vit_amiN: localize button text
 
 				// save off the last button text we've come across (for error reporting)
 				strcpy( szLastButtonText, cText );
@@ -865,6 +865,22 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 			}
 
 			// Move back up a menu
+			if( !m_pCurrentCommandMenu )
+			{
+				gEngfuncs.Con_Printf( "Unexpected '}' in %s after '%s'.\n", menuFile, szLastButtonText );
+				gEngfuncs.COM_FreeFile( pFileStart );
+				m_iInitialized = false;
+				return newIndex;
+			}
+
+			if( token[0] == '\0' && m_pCurrentCommandMenu != m_pCommandMenus[newIndex] )
+			{
+				gEngfuncs.Con_Printf( "Unexpected end of %s in menu '%s'.\n", menuFile, szLastButtonText );
+				gEngfuncs.COM_FreeFile( pFileStart );
+				m_iInitialized = false;
+				return newIndex;
+			}
+
 			m_pCurrentCommandMenu = m_pCurrentCommandMenu->GetParentMenu();
 
 			pfile = gEngfuncs.COM_ParseFile( pfile, token );
