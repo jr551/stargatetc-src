@@ -63,6 +63,11 @@ void CToken::KeyValue( KeyValueData *pkvd )
 
 void CToken::Spawn( void )
 {
+	if( SGTC_KeyObjectivesOff() )
+	{
+		UTIL_Remove( this );	// deathmatch has no bomb (game_nuke)
+		return;
+	}
 	Precache();
 	SET_MODEL( ENT( pev ), "models/bomb.mdl" );
 	pev->classname = MAKE_STRING( "game_nuke" );

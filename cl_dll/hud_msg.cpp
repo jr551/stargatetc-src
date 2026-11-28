@@ -19,6 +19,8 @@
 #include "hud.h"
 #include "cl_util.h"
 #include "parsemsg.h"
+#include "vgui_int.h"
+#include "vgui_TeamFortressViewport.h"
 #include "r_efx.h"
 
 #define MAX_CLIENTS 32
@@ -87,6 +89,8 @@ int CHud::MsgFunc_GameMode( const char *pszName, int iSize, void *pbuf )
 {
 	BEGIN_READ( pbuf, iSize );
 	m_Teamplay = READ_BYTE();
+	if( gViewPort )
+		gViewPort->SetDeathmatchCommandMenu( m_Teamplay == 2 );	// deathmatch has no key or bomb entries
 
 	if( m_Teamplay == 2 )
 		ClientCmd( "richpresence_gamemode Deathmatch\n" );	// CStargateTeamDM sends 2
