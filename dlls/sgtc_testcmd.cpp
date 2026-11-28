@@ -1259,8 +1259,10 @@ static CBasePlayer *SGTC_WepFireShooter( void )
 	for( int i = 1; i <= gpGlobals->maxClients; ++i )
 	{
 		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
+		// Not an observer: the melee weapons refuse to swing for one (a bot waiting out the
+		// round start on sg2dm_radio was the first live bot, and coujaf, couteau and batsup failed).
 		if( pEntity && pEntity->IsPlayer() && FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) &&
-			pEntity->IsAlive() )
+			pEntity->IsAlive() && !( (CBasePlayer *)pEntity )->IsObserver() )
 			return (CBasePlayer *)pEntity;
 	}
 	return NULL;
