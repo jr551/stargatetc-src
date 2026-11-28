@@ -6,6 +6,7 @@ Usage:
     check_dedicated.py wepfire  <log>               wepfireall sweep (scenarios/wepfire_late.cfg)
     check_dedicated.py grenades <log>               grenadethrowall (scenarios/grenadeall.cfg)
     check_dedicated.py botkill  <log>               botkill (scenarios/botkill.cfg)
+    check_dedicated.py stamina  <log>               GUI log of gui_scenarios.py stamina: regen must run
 
 Each check prints one PASS/FAIL line per rule and exits 1 when any rule fails. Colour codes in
 the engine log are stripped first.
@@ -72,6 +73,16 @@ def check_botkill(rep, path, text):
     rep.rule(all(k.get("alive_after") == 0 for k in kills), "botkill: every victim died")
 
 
+def check_stamina(rep, path, text):
+    # The player lines carry "ammo":[1:2,...], which is not valid JSON, so read the fields by pattern.
+    seen = [int(m.group(2)) for m in re.finditer(
+        r'"cmd":"player","time":[0-9.]+,"index":(\d+),.*?"stamina":(-?\d+)', text) if m.group(1) == "1"]
+    rep.rule(len(seen) >= 3, "stamina: three samples of the host (%d)" % len(seen))
+    if len(seen) >= 3:
+        rep.rule(seen[0] <= 30, "stamina: starts low (%d)" % seen[0])
+        rep.rule(seen[-1] >= 90, "stamina: regenerates while standing still (%s)" % seen)
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
@@ -83,7 +94,8 @@ def main():
             check_clean(rep, path, text)
             continue
         check_clean(rep, path, text)
-        {"wepfire": check_wepfire, "grenades": check_grenades, "botkill": check_botkill}[mode](rep, path, text)
+        {"wepfire": check_wepfire, "grenades": check_grenades, "botkill": check_botkill,
+         "stamina": check_stamina}[mode](rep, path, text)
     return 1 if rep.failed else 0
 
 

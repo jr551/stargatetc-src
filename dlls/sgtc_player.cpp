@@ -1442,9 +1442,14 @@ void CBasePlayer::SGTC_TickSgtcThinkTail( void )
 
 	if( bTailTick )
 	{
-		if( !SGTC_FloatEq( m_flSgtcLatch3fc, flNow ) )
+		// The drug effect (random grey fades plus the Concuss view) runs only while the +0x3fc
+		// deadline is in the future: narco gas and drugs4me set now + 15, and the medic,
+		// goaregen, Teal'c and zat-touch writes leave it in the past. The port compared the
+		// latch with flNow for equality, which is true for no player in normal play, so once
+		// the tail ran a random grey fade started every half second for everybody.
+		if( m_flSgtcLatch3fc > flNow )
 		{
-			if( SGTC_FloatEq( m_flSgtcLatch490, flNow ) && gmsgConcuss )
+			if( m_iConcussLatch != 1 && gmsgConcuss )
 			{
 				MESSAGE_BEGIN( MSG_ONE, gmsgConcuss, NULL, pev );
 				WRITE_BYTE( 150 );
@@ -1573,9 +1578,12 @@ void CBasePlayer::SGTC_TickSgtcThinkTail( void )
 				m_iSupergunsSent = iSuper;
 			}
 		}
-	}
 
-	m_flSgtcTailTick = flNow + kTailGateSec;
+		// Re-arm the 0.5 s gate only when the tail ran, like the move latch above. Writing it
+		// on every call pushed the deadline forward each frame, so the tail (stamina regen
+		// included) never ran after the first think.
+		m_flSgtcTailTick = flNow + kTailGateSec;
+	}
 
 	if( m_bSgtcPePreset )
 	{

@@ -6,6 +6,7 @@ Usage:
     gui_scenarios.py menus   <out>                     one screenshot each of briefing, team, MOTD, help, loadout, pack
     gui_scenarios.py chain   <out>                     chain 5 -> 11 -> 10, then autopick (menu chain hang regression)
     gui_scenarios.py weapons <out> <weapon list file>  give, use and fire every listed weapon (client effects)
+    gui_scenarios.py stamina <out>                     set the player's stamina to 20 and sample it for 25 s of game time
 
 A GUI run executes the file one command per frame: `wait` is one frame, so the scripts build
 longer delays from nested aliases (a long run of plain `wait` lines overflows the command buffer).
@@ -46,6 +47,17 @@ def scenario_chain():
                       'screenshot', 'w100', 'quit']
 
 
+def scenario_stamina():
+    # sgtc_test_enable lets `sgtc_test "stamina_20"` set the host's stamina; `players` prints it.
+    lines = ['maxplayers 8', 'sgtc_bot_quota 0', 'mp_wepselmode 0', 'sv_cheats 1', 'sgtc_test_enable 1',
+             PRELUDE[2], PRELUDE[3], 'alias w1000 "w100;w100;w100;w100;w100;w100;w100;w100;w100;w100"',
+             'map sg_nox', 'w100;w100;w100;w100;w100', 'hidevgui', 'w10', 'autopick', 'w100;w100',
+             'hidevgui', 'w10', 'god', 'echo STEP_set', 'sgtc_test "stamina_20"', 'w10',
+             'sgtc_test "players"', 'w1000', 'echo STEP_t1', 'sgtc_test "players"', 'w1000',
+             'echo STEP_t2', 'sgtc_test "players"', 'w100', 'quit']
+    return lines
+
+
 def scenario_weapons(path):
     weapons = [w.strip() for w in open(path) if w.strip()]
     lines = PRELUDE + ['mp_wepselmode 0', 'sv_cheats 1', 'sgtc_fxlog 1',
@@ -68,6 +80,8 @@ def main():
         lines = scenario_menus()
     elif kind == 'chain':
         lines = scenario_chain()
+    elif kind == 'stamina':
+        lines = scenario_stamina()
     elif kind == 'weapons' and len(sys.argv) == 4:
         lines = scenario_weapons(sys.argv[3])
     else:
