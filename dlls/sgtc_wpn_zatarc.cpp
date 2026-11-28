@@ -61,6 +61,7 @@ void CZatarc::Precache( void )
 	m_bSgtcZarSplash = iSplash ? 1 : 0;
 
 	PRECACHE_SOUND( "weapons/zar.wav" );
+	PRECACHE_SOUND( "weapons/357_cock1.wav" );	// zoom click
 
 	m_usFire = PRECACHE_EVENT( 1, "events/zatarc.sc" );
 }
@@ -175,6 +176,8 @@ void CZatarc::SecondaryAttack( void )	// ref CZatarc::SecondaryAttack @0x1c75d4 
 		m_pPlayer->pev->fov = 50.0f;
 		m_iSgtcZoomStage = 1;
 	}
+	// Each zoom step made no sound, like the M16 scope and PSG1 zoom before ca3e921.
+	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/357_cock1.wav", 0.8f, ATTN_NORM );
 	pev->nextthink = gpGlobals->time + 0.1f;
 	m_flNextSecondaryAttack = UTIL_WeaponTimeBase() + 0.5f;	// ref +0x1d8
 }
