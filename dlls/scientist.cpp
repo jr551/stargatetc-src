@@ -432,10 +432,10 @@ const char *CScientist::GetScientistModel( void )
 		g_psv_override_scientist_mdl = CVAR_GET_POINTER( "_sv_override_scientist_mdl" );
 
 	if( !( g_psv_override_scientist_mdl && g_psv_override_scientist_mdl->string ))
-		return "models/scientist.mdl";
+		return "models/player/scientist/Scientist.mdl";
 
 	if( strlen( g_psv_override_scientist_mdl->string ) < sizeof( "01.mdl" ) - 1 )
-		return "models/scientist.mdl";
+		return "models/player/scientist/Scientist.mdl";
 
 	return g_psv_override_scientist_mdl->string;
 }
@@ -1189,10 +1189,10 @@ const char *CDeadScientist::GetScientistModel( void )
 		g_psv_override_scientist_mdl = CVAR_GET_POINTER( "_sv_override_scientist_mdl" );
 
 	if( !( g_psv_override_scientist_mdl && g_psv_override_scientist_mdl->string ))
-		return "models/scientist.mdl";
+		return "models/player/scientist/Scientist.mdl";
 
 	if( strlen( g_psv_override_scientist_mdl->string ) < sizeof( "01.mdl" ) - 1 )
-		return "models/scientist.mdl";
+		return "models/player/scientist/Scientist.mdl";
 
 	return g_psv_override_scientist_mdl->string;
 }
@@ -1247,8 +1247,8 @@ SITTING_ANIM_sitting3
 //
 void CSittingScientist::Spawn()
 {
-	PRECACHE_MODEL( "models/scientist.mdl" );
-	SET_MODEL( ENT( pev ), "models/scientist.mdl" );
+	PRECACHE_MODEL( "models/player/scientist/Scientist.mdl" );
+	SET_MODEL( ENT( pev ), "models/player/scientist/Scientist.mdl" );
 	Precache();
 	InitBoneControllers();
 
