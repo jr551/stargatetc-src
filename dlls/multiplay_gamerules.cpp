@@ -29,6 +29,7 @@
 #include	"voice_gamemgr.h"
 #include	"hltv.h"
 #include	"trains.h"
+#include	"client.h"	// respawn()
 
 extern DLL_GLOBAL CGameRules *g_pGameRules;
 extern DLL_GLOBAL BOOL	g_fGameOver;
@@ -39,6 +40,7 @@ extern int gmsgMOTD;
 extern int gmsgServerName;
 
 extern int g_teamplay;
+extern int sgtc_GameModeSet;	// sgtc_round.cpp: 8 = stock rules (a map outside the SGTC prefixes)
 
 #define ITEM_RESPAWN_TIME	30
 #define WEAPON_RESPAWN_TIME	20
@@ -510,6 +512,23 @@ void CHalfLifeMultiplay::PlayerThink( CBasePlayer *pPlayer )
 		pPlayer->pev->button = 0;
 		pPlayer->m_afButtonReleased = 0;
 	}
+
+	// Stock rules (a map outside the SGTC prefixes, mode 8). CBasePlayer::PreThink hands a player
+	// that has an observer mode to the observer buttons and returns before PlayerDeathThink, and
+	// PlayerDeathThink starts the observer mode on its first dead tick, so after one death
+	// nothing respawned the player: a host on sg2dm_radio stayed dead for good. The SGTC rules
+	// respawn through the team and class commands, which a stock map does not offer. Respawn the
+	// way PlayerDeathThink does: any button, or mp_forcerespawn and five seconds.
+	if( !g_fGameOver && sgtc_GameModeSet == 8 && pPlayer->pev->deadflag == DEAD_RESPAWNABLE &&
+		pPlayer->IsObserver() )
+	{
+		if( ( pPlayer->pev->button & ~IN_SCORE ) ||
+			( forcerespawn.value > 0 && gpGlobals->time > pPlayer->m_fDeadTime + 5 ) )
+		{
+			pPlayer->pev->button = 0;
+			respawn( pPlayer->pev, FALSE );	// the corpse was copied when the player died
+		}
+	}
 }
 
 //=========================================================
@@ -519,6 +538,13 @@ void CHalfLifeMultiplay::PlayerSpawn( CBasePlayer *pPlayer )
 	BOOL		addDefault;
 	CBaseEntity	*pWeaponEntity = NULL;
 	int 		iOldAutoWepSwitch;
+
+	// Stock rules only: a player that died is put in an observer mode and nothing else leaves
+	// it (the SGTC team rules call StopObserver themselves), so a respawned player, or a bot that
+	// came back through the class command, stayed a half observer: alive, but no loadout and the
+	// observer think instead of the player's.
+	if( sgtc_GameModeSet == 8 )
+		pPlayer->StopObserver();
 
 	iOldAutoWepSwitch = pPlayer->m_iAutoWepSwitch;
 

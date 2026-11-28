@@ -9,6 +9,8 @@ Usage:
     check_dedicated.py stamina  <log>               GUI log of gui_scenarios.py stamina: regen must run
     check_dedicated.py flash    <log>               flashtest (scenarios/flash.cfg): no info_flash removed at spawn
     check_dedicated.py flashair <log>               GUI log of gui_scenarios.py flash: the flash survives its spawn
+    check_dedicated.py respawn  <log>               GUI log of gui_scenarios.py respawn: a dead host comes back as a player
+    check_dedicated.py observers <log>              wepfire_late log on a stock-rules map (sg2dm_radio): every bot is seen playing
     check_dedicated.py mapchange <log>              scenarios/mapchange.cfg: time limit, intermission, level change, no crash
     check_dedicated.py quiet    <log> [<log> ...]   dedicated logs: no unknown-command, late-precache or missing-cvar warnings
     check_dedicated.py sp       <log> [<expected replaced>]   run_sp.sh log: activates, no missing jaffa.mdl
@@ -114,6 +116,45 @@ def check_flashair(rep, path, text):
         rep.rule(rows[-1].get("killme") == 0, "flashair: the flash survived its spawn (killme %s)" % rows[-1].get("killme"))
 
 
+def player_rows(text):
+    """The `player` lines of the players test command, as dicts (the ammo list is not valid JSON)."""
+    rows = []
+    for m in re.finditer(r'"cmd":"player","time":([0-9.]+),"index":(\d+),"name":"([^"]*)".*?"fake":(\d)'
+                         r'(?:,"observer":(\d))?(?:,"iuser1":(-?\d+),"deadflag":(-?\d+))?', text):
+        rows.append({"time": float(m.group(1)), "index": int(m.group(2)), "name": m.group(3), "fake": int(m.group(4)),
+                     "observer": int(m.group(5) or 0), "iuser1": int(m.group(6) or 0), "deadflag": int(m.group(7) or 0)})
+    return rows
+
+
+def check_respawn(rep, path, text):
+    marks = {name: text.find("STEP_" + name) for name in ("alive", "dead", "respawned")}
+    rep.rule(all(v >= 0 for v in marks.values()), "respawn: the three STEP markers are in the log")
+    if not all(v >= 0 for v in marks.values()):
+        return
+
+    def host_after(name):
+        rows = [r for r in player_rows(text[marks[name]:]) if r["index"] == 1 and not r["fake"]]
+        return rows[0] if rows else None
+
+    alive, dead, back = host_after("alive"), host_after("dead"), host_after("respawned")
+    rep.rule(bool(alive) and alive["deadflag"] == 0 and alive["iuser1"] == 0, "respawn: the host starts as a player")
+    rep.rule(bool(dead) and dead["deadflag"] != 0, "respawn: kill killed the host (deadflag %s)" % (dead or {}).get("deadflag"))
+    rep.rule(bool(back) and back["deadflag"] == 0 and back["iuser1"] == 0,
+             "respawn: the host is alive and not an observer after the forced respawn (deadflag %s, iuser1 %s)" %
+             ((back or {}).get("deadflag"), (back or {}).get("iuser1")))
+
+
+def check_observers(rep, path, text):
+    bots = {}
+    for r in player_rows(text):
+        if r["fake"] and r["time"] >= 40.0:
+            bots.setdefault(r["name"], []).append(r["observer"])
+    rep.rule(len(bots) >= 2, "observers: late samples of at least two bots (%d)" % len(bots))
+    for name, seen in sorted(bots.items()):
+        # A bot waiting out its death shows observer 1 for a couple of seconds; the bug showed it in every sample.
+        rep.rule(0 in seen, "observers: %s is seen playing in at least one late sample (%s)" % (name, seen))
+
+
 def check_mapchange(rep, path, text):
     maps = re.findall(r'Loading map "([^"]+)"', text)
     rep.rule(len(maps) >= 2, "mapchange: the server loaded a second map after the time limit (%s)" % maps)
@@ -151,7 +192,8 @@ def main():
             check_clean(rep, path, text)
         {"wepfire": check_wepfire, "grenades": check_grenades, "botkill": check_botkill,
          "stamina": check_stamina, "flash": check_flash,
-         "flashair": check_flashair, "mapchange": check_mapchange}[mode](rep, path, text)
+         "flashair": check_flashair, "mapchange": check_mapchange, "respawn": check_respawn,
+         "observers": check_observers}[mode](rep, path, text)
     return 1 if rep.failed else 0
 
 

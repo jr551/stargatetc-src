@@ -37,7 +37,7 @@ Make a hard-linked private copy per run (real copies of everything the engine wr
 ## Dedicated-server scenarios
 
     tests/playtest/run_dedicated.sh <install copy> <port> <scenario> <map> <timeout> <log>
-    tests/playtest/check_dedicated.py wepfire|grenades|botkill|clean <log>
+    tests/playtest/check_dedicated.py wepfire|grenades|botkill|observers|clean <log>
 
 | scenario | map | what it covers |
 | --- | --- | --- |
@@ -49,6 +49,8 @@ Make a hard-linked private copy per run (real copies of everything the engine wr
 | `mapchange` | `sg2dm_radio` | `srv mp_timelimit 1` at 12 s: intermission at 60 s, then the stock 120 s intermission cap, then the level change at about 180 s (the server kicks and re-adds the bots). Needs a 260 s timeout, so the log ends by the kill. `check_dedicated.py mapchange`. |
 | `roundreset` | `sg_nox` | eight `srv mp_resetround 1` pulses 12 s apart: the round restart path under bots; entities stay flat. |
 | `long` | `sg_pyramide` | 275 s soak with Zat duels and a C4 drop and detonation. |
+
+Run `wepfire_late` on `sg2dm_radio` (stock rules, mode 8) and check that log with `check_dedicated.py observers` as well: before the stock-rules respawn fix every bot sat in observer mode after its first death, with no loadout, and the check fails on such a log.
 
 `check_dedicated.py quiet <log>` fails a dedicated log that has unknown-command, late-precache or fell-out-of-level warnings.
 
@@ -78,6 +80,7 @@ The engine ignores `+exec` and `+map` in GUI mode, so a scenario goes in
   the old one. `check_dedicated.py flashair` checks the log line.
 - `stamina`: sets the host's stamina to 20 and samples it while standing still; `check_dedicated.py stamina`
   fails when it does not come back (the half-second think tail never ran before d9c3e12).
+- `respawn`: `kill` on the host on `sg2dm_radio` and the forced respawn five seconds later; `check_dedicated.py respawn` fails when the host stays dead (it did on every stock-rules map until the respawn fix).
 - `map`: used by `gui_map_sweep.sh` for the per-map client check.
 
 Tips: `sgtc_timer_dump` prints the HUD clock mode (1 = player HUD, 2 = spectator clock only),

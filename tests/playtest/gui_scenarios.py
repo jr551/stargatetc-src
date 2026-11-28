@@ -8,6 +8,7 @@ Usage:
     gui_scenarios.py weapons <out> <weapon list file>  give, use and fire every listed weapon (client effects)
     gui_scenarios.py stamina <out>                     set the player's stamina to 20 and sample it for 25 s of game time
     gui_scenarios.py flash   <out>                     lift the player into open air and spawn a flash at the eyes
+    gui_scenarios.py respawn <out>                     kill the host on a stock-rules map (sg2dm_radio) and wait for the respawn
 
 A GUI run executes the file one command per frame: `wait` is one frame, so the scripts build
 longer delays from nested aliases (a long run of plain `wait` lines overflows the command buffer).
@@ -69,6 +70,17 @@ def scenario_flash():
             'sgtc_test "flashair"', 'w100;w100;w100', 'echo STEP_after', 'screenshot', 'w100', 'quit']
 
 
+def scenario_respawn():
+    # Stock rules (a map outside the SGTC prefixes): the host dies with `kill`, and the forced respawn
+    # (mp_forcerespawn, five seconds) has to bring it back as a player. Before the fix the host stayed
+    # dead for good, an observer with deadflag 3. check_dedicated.py respawn reads the three samples.
+    return ['maxplayers 8', 'sgtc_bot_quota 0', 'mp_wepselmode 0', 'sv_cheats 1', 'sgtc_test_enable 1',
+            'mp_forcerespawn 1', PRELUDE[2], PRELUDE[3], 'map sg2dm_radio', 'w100;w100;w100;w100;w100',
+            'hidevgui', 'w100', 'echo STEP_alive', 'sgtc_test "players"', 'kill', 'w100;w100;w100',
+            'echo STEP_dead', 'sgtc_test "players"', 'w100;w100;w100;w100;w100;w100', 'echo STEP_respawned',
+            'sgtc_test "players"', 'screenshot', 'w100', 'quit']
+
+
 def scenario_weapons(path):
     weapons = [w.strip() for w in open(path) if w.strip()]
     lines = PRELUDE + ['mp_wepselmode 0', 'sv_cheats 1', 'sgtc_fxlog 1',
@@ -95,6 +107,8 @@ def main():
         lines = scenario_flash()
     elif kind == 'stamina':
         lines = scenario_stamina()
+    elif kind == 'respawn':
+        lines = scenario_respawn()
     elif kind == 'weapons' and len(sys.argv) == 4:
         lines = scenario_weapons(sys.argv[3])
     else:
