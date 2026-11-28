@@ -107,7 +107,11 @@ The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so the
 
 A second `reetou.wav` match (0.98) comes 3.4 s after the shot, on the baseline build too: the viewmodel's `tir1a` sequence plays it again.
 
-The coujaf miss swing is audible now (a swing whoosh, peak rms 7308 in `allfin1`; silent in `allbase1`). Not measured: the coujaf `nightstrike.wav` (missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing).
+The coujaf miss swing is audible now (a swing whoosh, peak rms 7308 in `allfin1`; silent in `allbase1`). Levels in the output of the tour below (full scale is 32768): the clicks peak at 18,260, the pin pull at 21,800, the whooshes at 13,600 to 16,200, the reload at 21,600 and the shield cue at 25,300, against 24,700 for a USAS shot, so none clips and none is much quieter than a shot.
+
+A sound tour for a person with speakers is `tests/playtest/scenarios/sound_tour.cfg`: 14 steps, about two minutes, one console line naming each sound before it plays. Run through the null sink (`tour2`), every step's wav is in the output: 11 clicks across the five toggle steps, the pin pull and whoosh, the three throw whooshes, the full charge sound (0.88) with the whoosh on top, the reload, the shield cue, the Reetou shot, and the coujaf and couteau swings. Nobody has done the listening yet; the tour is how.
+
+Not measured: the coujaf `nightstrike.wav` (missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing).
 
 ## Final sweep on the merged tree
 
@@ -186,7 +190,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 8. **Larve detonation.** The blast itself has sound and damage only. The visible effect is the concussion fade: the view goes grey for several frames when the blast hits a player within 128 units (`larvevis-3`). In the harness the player is on team 0, so the larve's enemy search does not exclude its owner; with teams that check applies.
 9. **P90 silencer toggle, M16 scope and PSG1 zoom** were silent. All three now play the dry-fire click (`ca3e921`), measured in the audio output. The zatarc zoom steps were silent too and now click as well (`ace710a`).
 10. **Heal and poison on a target.** Captured in the multiplayer runs (see the medic and goaregen rows). Earlier attempts used `jointeam`, `menuselect` and key presses and stayed an observer; `autopick` after the briefing step spawns the local player as a class, and the pending team and class are applied on the next dead tick.
-11. **Sound.** Measured on a PipeWire null sink (section above): the MP5 click, the gas pin pull, the Reetou shot, the USAS reload, the shield raise cue and the throw whoosh are in the audio output. Nobody has listened to them. Whether they sound right, and at what volume, is still a human check.
+11. **Sound.** Measured on a PipeWire null sink (section above): the MP5 click, the gas pin pull, the Reetou shot, the USAS reload, the shield raise cue and the throw whoosh are in the audio output. Nobody has listened to them. Whether they sound right, and at what volume, is still a human check; `tests/playtest/scenarios/sound_tour.cfg` plays them all in order for that.
 
 ## Commits on this branch since `716dc00`
 
