@@ -146,7 +146,11 @@ static const char *const s_greet[] =
 	"sup",
 	"hey there",
 	"o/",
-	"hi all"
+	"hi all",
+	"hey %n",
+	"hi %n",
+	"welcome %n",
+	"sup %n"
 };
 
 static const char *const s_thanks[] =
