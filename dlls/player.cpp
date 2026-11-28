@@ -3395,7 +3395,10 @@ void CBasePlayer::Spawn( void )
 	extern void SGTC_SpawnPostAdjust( CBasePlayer *pPlayer );
 	SGTC_SpawnPostAdjust( this );	// build-9: spread SP-map fallback spawns
 
-	SET_MODEL( ENT( pev ), "models/player.mdl" );
+	// Single-player uses a textured Stargate character. The cleanroom models/player.mdl
+	// has no embedded textures and reads as a plain rig in the GL view. Deathmatch keeps
+	// the stock player model.
+	SET_MODEL( ENT( pev ), gpGlobals->deathmatch ? "models/player.mdl" : "models/player/oneill/oneill.mdl" );
 	g_ulModelIndexPlayer = pev->modelindex;
 	pev->sequence = LookupActivity( ACT_IDLE );
 
