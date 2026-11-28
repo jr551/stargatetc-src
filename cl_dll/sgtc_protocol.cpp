@@ -686,6 +686,16 @@ void EV_SGTC_PSG1( struct event_args_s *args )
 		V_PunchAxis( 0, -4.5f );	// strongest kick in the arsenal (was -2.0)
 		V_PunchAxis( 2, gEngfuncs.pfnRandomFloat( -0.8f, 0.8f ) );	// roll
 		SGTC_Aim_OnLocalFire();
+
+		// v_psg1.mdl has no muzzle flash event, so the shot showed only the light.
+		// Draw the flash the M16, P90 and USAS models trigger (type 20) at the barrel
+		// attachment, except behind the scope, where the barrel is out of view.
+		if( gHUD.m_iFOV >= 70 )
+		{
+			cl_entity_t *pView = gEngfuncs.GetViewModel();
+			if( pView )
+				gEngfuncs.pEfxAPI->R_MuzzleFlash( pView->attachment[0], 20 );
+		}
 	}
 
 	EV_GetDefaultShellInfo( args, origin, velocity, ShellVelocity, ShellOrigin,
@@ -728,9 +738,13 @@ void EV_SGTC_Reetou( struct event_args_s *args )
 		V_PunchAxis( 0, gEngfuncs.pfnRandomFloat( -2, 2 ) );
 	}
 
-	// The primary was silent on both sides. Everyone hears it, the shooter too.
-	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/reetou.wav",
-		1.0f, 0.8f, 0, 94 + gEngfuncs.pfnRandomLong( 0, 0xf ) );
+	// The shooter already hears this from the viewmodel: v_reetou.mdl plays
+	// weapons/reetou.wav from its tir1 and tir1a sequences (event 5004). Playing it
+	// here as well doubled the shot, louder by half and clipping in the output. The
+	// viewmodel event does not exist for other players, so they get it from here.
+	if( !EV_IsLocal( idx ) )
+		gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/reetou.wav",
+			1.0f, 0.8f, 0, 94 + gEngfuncs.pfnRandomLong( 0, 0xf ) );
 }
 
 // ref 0x1000a10c — reetou2: local anim 3, body R(0,1)
@@ -1396,7 +1410,10 @@ void EV_SGTC_Throw( struct event_args_s *args )
 	if( EV_IsLocal( idx ) )
 		V_PunchAxis( 0, -( 0.5f + flStrength ) );
 
-	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON,
+	// Not CHAN_WEAPON: a new sound on an entity's channel cuts the one playing there,
+	// and the Goa'uld grenade device holds its 2.8 s charge sound on CHAN_WEAPON. The
+	// whoosh on that channel stopped the charge sound at the throw.
+	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_AUTO,
 		sounds[gEngfuncs.pfnRandomLong( 0, 2 )],
 		0.5f + 0.3f * flStrength, 0.8f, 0, 98 + gEngfuncs.pfnRandomLong( 0, 7 ) );
 }
