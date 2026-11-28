@@ -34,7 +34,7 @@ These are referenced by the code but are in neither the repo nor the test game f
 |---|---|---|
 | `models/v_shield.mdl`, `models/p_shield.mdl`, `models/w_shield.mdl` | `weapon_shield` (`dlls/sgtc_wpn_shield.cpp`, client table `cl_dll/sgtc_weapons_client.cpp:49`) | The shield gun has no viewmodel or worldmodel. Its raise sound and glow still play. |
 | `sprites/zatwave.spr` | `weapon_zat` (`dlls/sgtc_wpn_zat.cpp:96`, beam TEs at `:267`; projectile `dlls/sgtc_misc.cpp:73`) | The zat wave sprite is not drawn. |
-| `sound/weapons/nightstrike.wav` | `weapon_coujaf` (`dlls/sgtc_wpn_coujaf.cpp:152`, `:294`) | The night-strike sound was silent. Since the stand-in change (`beb352e`) the coujaf's own `weapons/coujafcorps.wav` plays in its place while the real file is absent. The branch only runs in the latch swing state (`m_iSwing == 1` with `m_bHurtInvertFx`), which no run reached, so the stand-in is compiled but has not been heard. |
+| `sound/weapons/nightstrike.wav` | `weapon_coujaf` (`dlls/sgtc_wpn_coujaf.cpp:152`, `:294`) | Never played, so no stand-in: the night strike needs `m_iSwing == 1`, and nothing in the port ever sets `m_iSwing` to 1 (it is only cleared, in `Swing` and `WeaponIdle`), so the branch and its sound cannot run. A stand-in was added in `beb352e` and removed again once that showed; the latch mode (shield large plus the `hurtinvert` toggle) is a feature gap, not a missing sound. |
 | `sound/weapons/flashbang.wav` | `weapon_flashbang` (`dlls/sgtc_wpn_flashbang.cpp:51`) | Precached but absent, and nothing played it, so the flashbang was silent at detonation (the `common/null.wav` at `:88` is the holster cut, not the detonation). The flash think now plays the real file when it exists and `weapons/dbarrel1.wav` (pitch 108) until then; measured in the audio output at the detonation, match 1.00 against none before. The Goa'uld device shares the think and is left as it was. |
 | `sound/weapons/timer.wav` | HUD (`cl_dll/status_icons.cpp:148`) | Never played, so no stand-in: the stock status-icon hack plays it when a StatusIcon named `grenade...` is enabled, and the server registers no StatusIcon message. |
 
@@ -112,7 +112,7 @@ The coujaf miss swing is audible now (a swing whoosh, peak rms 7308 in `allfin1`
 
 A sound tour for a person with speakers is `tests/playtest/scenarios/sound_tour.cfg`: 14 steps, about two minutes, one console line naming each sound before it plays. Run through the null sink (`tour2`), every step's wav is in the output: 11 clicks across the five toggle steps, the pin pull and whoosh, the three throw whooshes, the full charge sound (0.88) with the whoosh on top, the reload, the shield cue, the Reetou shot, and the coujaf and couteau swings. Nobody has done the listening yet; the tour is how.
 
-Not measured: the coujaf night-strike stand-in (the branch needs the latch swing state, which no run reached).
+Not applicable: the coujaf night strike (unreachable, see the assets table) and the HUD timer (never played).
 
 ## Final sweep on the merged tree
 
@@ -182,7 +182,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 ## Decisions and open items
 
 1. **MP5 secondary.** Approved: the stock edit is `4596d74`. The reference secondary is a cooldown-only stub, so it gets the dry-fire click only, with no projectile and no ammo.
-2. **Missing assets** (table above). Decided first: wait for the asset set. Then, on 2026-11-28, the user chose sound stand-ins: the flashbang detonation and the coujaf night strike now play an existing sample while the real file is absent, and the real file takes over when it ships. The HUD timer sound is never played, so it needs none. The shield models and the zat wave sprite stay blocked until the asset set arrives.
+2. **Missing assets** (table above). Decided first: wait for the asset set. Then, on 2026-11-28, the user chose sound stand-ins: the flashbang detonation now plays an existing sample while the real file is absent, and the real file takes over when it ships. The coujaf night strike and the HUD timer sound are never played in this port (the night strike needs a swing state nothing sets, the timer needs a status icon the server never sends), so neither has a stand-in. The shield models and the zat wave sprite stay blocked until the asset set arrives.
 3. **Zatarc whole-view tint.** Fixed on r20 (see the table). The source was the full-alpha `Muz1` sprite at close hits.
 4. **Flashbang detonation.** Confirmed. The flashbang leaves the entity list about 3.4 s after the throw, and the view goes grey-white and fades (`flashvis-4`, `flashvis-5`).
 5. **Gas cloud.** Now visible at range as a radius-scaled sprite burst (`9228678`). Detonation at t=16.89, the cloud 1,212 units from the thrower, with the before and after frames as above. The earlier beam strip, 16 units tall and about 42 wide, was a few pixels at that range. Close-range frames are not captured.
@@ -217,3 +217,4 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `25f8500` Draw a muzzle flash for the PSG1
 - `ace710a` Add a click to the zatarc zoom steps
 - `beb352e` Play stand-in sounds for the missing flashbang and coujaf night strike samples
+- `(next)` Remove the coujaf night strike stand-in: the branch cannot run
