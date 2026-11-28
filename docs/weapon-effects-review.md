@@ -44,9 +44,9 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 
 | Weapon (class) | Primary: receipt | Primary: on screen | Secondary: receipt | Secondary: on screen | Notes |
 |---|---|---|---|---|---|
-| `weapon_m16` (CM16) | `m16.sc` ×3; ×5 in the flash run | M16 held with scope; a warm tint on the near rock in the first frame (`m16flash-0`). Fired at the floor from a fixed position, the muzzle light warms the whole floor (`m16floor-0`). No flash sprite | Zoom; no event by design | Zoomed view, scope visible | Muzzle light radius 32 (see commit 37e9a4f) |
-| `weapon_p90` (CP90) | `p90.sc` ×5 | Held; no flash in frame | Silencer toggle and FOV; no event by design | Held | Silenced shot: `p90l.sc` ×1 (extra run). The silencer toggle is silent |
-| `weapon_psg1` (CPsg1) | `psg1.sc` ×1 | Held; no flash in frame | Zoom stages; no event by design | Not checked | |
+| `weapon_m16` (CM16) | `m16.sc` ×3; ×5 in the flash run | M16 held with scope; a warm tint on the near rock in the first frame (`m16flash-0`). Fired at the floor from a fixed position, the muzzle light warms the whole floor (`m16floor-0`). No flash sprite | Zoom; no event by design | Zoomed view, scope visible | Muzzle light radius 32 (see commit 37e9a4f). The scope toggle now plays a click (`ca3e921`) |
+| `weapon_p90` (CP90) | `p90.sc` ×5 | Held; no flash in frame | Silencer toggle and FOV; no event by design | Held | Silenced shot: `p90l.sc` ×1 (extra run). The silencer toggle now plays a click (`ca3e921`) |
+| `weapon_psg1` (CPsg1) | `psg1.sc` ×1 | Held; no flash in frame | Zoom stages; no event by design | Not checked | Each zoom step now plays a click (`ca3e921`) |
 | `weapon_m92s` (CM92s, Eagle) | `eagle.sc` ×3 | Held; no flash in frame | None | — | |
 | `weapon_usas` (CUsas) | `usas.sc` ×3; ×5 in the flash run | Muzzle flash visible at the first frame after the shot (`usasflash-0`). Pellet decals are visible when fired down at the floor from a fixed position (`usasfloor-0`) | None | — | Client draws 8 pellets at 1024 units, matching the server (commit 880a52c) |
 | `weapon_spas` (CShotgun, stock) | `spas.sc` and `spas2.sc` ×1 | Pellet decals are visible when fired down at the floor from a fixed position (`spasfloor-0`); not visible in the default view at range | Stock secondary is empty | — | Client draws 8 pellets at 2048 units (commit 880a52c). Stock class |
@@ -97,11 +97,14 @@ The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so the
 | Shield raise | `weapons/P90recharge.wav` | 0.98 | +1.6 s |
 | Flashbang throw | a `swing` whoosh | 0.47 | +2.2 s |
 | Hand grenade throw | `weapons/swing3.wav` | 1.00 | +2.2 s |
+| M16 scope toggle (`snd4`) | `weapons/357_cock1.wav` | 0.95 | +1.5 s |
+| P90 silencer toggle (`snd4`) | `weapons/357_cock1.wav` | 0.95 | +1.5 s |
+| PSG1 zoom, two steps (`snd5`) | `weapons/357_cock1.wav` | 0.95, 0.95 | +1.8 s and 1.6 s later |
 | Control: marker, no action | none of the above | none | none |
 
 A second `reetou.wav` match (0.98) came 3.4 s after the first in `snd2`. The single-shot run has only one, and only the Reetou event plays the file, so another shooter in that session most likely made it (the single-player map runs enemies). It was not chased.
 
-Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing), and the P90 silencer toggle (silent).
+Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing).
 
 ## Final sweep on the merged tree
 
@@ -129,7 +132,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 6. **Batsup follow-up swing** (`batsup2.sc`) confirmed with 36- and 40-frame gaps. The window is about 0.5–0.75 s after the first swing; 6, 25 and 50 frames miss it.
 7. **Invis shield wall.** Confirmed. The gate needs colormap bit 9, which the test-only token `colormap9_1` sets (`e16e05c`). The secondary then adds one entity (the wall) and the view takes a whole-view yellow-green shield tint (`invisinfo-0`). The load sound was not heard.
 8. **Larve detonation.** The blast itself has sound and damage only. The visible effect is the concussion fade: the view goes grey for several frames when the blast hits a player within 128 units (`larvevis-3`). In the harness the player is on team 0, so the larve's enemy search does not exclude its owner; with teams that check applies.
-9. **P90 silencer toggle** is silent. A click would be a small addition.
+9. **P90 silencer toggle, M16 scope and PSG1 zoom** were silent. All three now play the dry-fire click (`ca3e921`), measured in the audio output. The zatarc zoom is still silent.
 10. **Heal and poison on a target.** Captured in the multiplayer runs (see the medic and goaregen rows). Earlier attempts used `jointeam`, `menuselect` and key presses and stayed an observer; `autopick` after the briefing step spawns the local player as a class, and the pending team and class are applied on the next dead tick.
 11. **Sound.** Measured on a PipeWire null sink (section above): the MP5 click, the gas pin pull, the Reetou shot, the USAS reload, the shield raise cue and the throw whoosh are in the audio output. Nobody has listened to them. Whether they sound right, and at what volume, is still a human check.
 
@@ -151,3 +154,4 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `1b22090` Unlink queued menus by relinking, not appending
 - `ffdb3a9` Let the medic and Goa'uld regen weapons trace teammates
 - `adb4bed` Draw the medic and regen target puffs where the target can be seen
+- `ca3e921` Add a click to the M16 scope, PSG1 zoom and P90 silencer toggles
