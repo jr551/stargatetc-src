@@ -857,6 +857,13 @@ void CBaseTrigger::HurtTouch( CBaseEntity *pOther )
 	// build-15 ref HurtTouch 0x197d3c: m_team filter (same equality semantics).
 	if( !SGTC_TeamFilterAllows( this, pOther ) )
 		return;
+
+	// Team-keyed hurt zones (m_team 1 or 2) are deathmatch spawn guards that hurt the other team.
+	// A single-player player has no team, so every one of them hurt it: the single-player start of
+	// sg_crypt and ctp_crypt sits inside one, and each run died there within seconds.
+	if( !g_pGameRules->IsMultiplayer() && SGTC_EntityTeamFilter( this ) != 0 )
+		return;
+
 	float fldmg;
 
 	if( !pOther->pev->takedamage )
