@@ -47,6 +47,12 @@
 	typedef char SGTC_SA_CAT( sgtc_static_assert_, __LINE__ )[ ( cond ) ? 1 : -1 ]
 #endif
 
+// UTIL_TraceLine( ..., dont_ignore_monsters, ... ) that also reports players on the
+// shooter's own team. Team no-collide (dlls/h_export.cpp SGTC_ShouldCollide) hides
+// teammates from a player's traces, which would stop the medic and the Goa'uld regen
+// weapon from healing anyone; they trace through this instead.
+void SGTC_TraceLineTeammates( const Vector &vecStart, const Vector &vecEnd, edict_t *pentIgnore, TraceResult *ptr );
+
 // SGTC custom skilldata fields (ref gSkillData+0x108..0x138) are written ONLY
 // by CHalfLifeMultiplay::RefreshSkillData @0x116b54 from rodata constants
 // (no sk_ cvar, no SP init — the port's stock skilldata_t has no slot for

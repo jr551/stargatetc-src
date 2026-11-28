@@ -1348,7 +1348,8 @@ void EV_SGTC_Shield( struct event_args_s *args )
 
 // Puffs for the medic and goaregen events: a short burst of additive sprites,
 // tinted per event, drifting up from the origin.
-static void SGTC_PuffBurst( const float *origin, int mdl, float r, float g, float b, float flRise, int iCount )
+static void SGTC_PuffBurst( const float *origin, int mdl, float r, float g, float b, float flRise, int iCount,
+	float flScale = 0.2f, float flSpread = 6.0f )
 {
 	int i;
 
@@ -1357,14 +1358,14 @@ static void SGTC_PuffBurst( const float *origin, int mdl, float r, float g, floa
 		vec3_t at, vel;
 		TEMPENTITY *pt;
 
-		at[0] = origin[0] + gEngfuncs.pfnRandomFloat( -6.0f, 6.0f );
-		at[1] = origin[1] + gEngfuncs.pfnRandomFloat( -6.0f, 6.0f );
-		at[2] = origin[2] + gEngfuncs.pfnRandomFloat( -4.0f, 8.0f );
+		at[0] = origin[0] + gEngfuncs.pfnRandomFloat( -flSpread, flSpread );
+		at[1] = origin[1] + gEngfuncs.pfnRandomFloat( -flSpread, flSpread );
+		at[2] = origin[2] + gEngfuncs.pfnRandomFloat( -0.67f * flSpread, 1.33f * flSpread );
 		vel[0] = gEngfuncs.pfnRandomFloat( -8.0f, 8.0f );
 		vel[1] = gEngfuncs.pfnRandomFloat( -8.0f, 8.0f );
 		vel[2] = flRise;
 
-		pt = gEngfuncs.pEfxAPI->R_TempSprite( at, vel, 0.2f, mdl, kRenderTransAdd,
+		pt = gEngfuncs.pEfxAPI->R_TempSprite( at, vel, flScale, mdl, kRenderTransAdd,
 			kRenderFxNoDissipation, 0.8f, 0.6f, FTENT_FADEOUT );
 		if( pt )
 		{
@@ -1411,23 +1412,56 @@ static void SGTC_ViewPuffOrigin( const struct event_args_s *args, float *out )
 	out[2] += 24.0f;
 }
 
+// A heal or poison puff on another player. The server sends the target's origin, the
+// middle of its body, and a sprite drawn there is mostly hidden by the player model
+// (a 6 unit steam1 puff showed as a few pixels). Pull the burst toward the shooter and up
+// to chest height, and grow it with distance so it still reads from across a room.
+static void SGTC_TargetPuffOrigin( const struct event_args_s *args, float *out, float *pflGrow )
+{
+	cl_entity_t *pShooter = gEngfuncs.GetEntityByIndex( args->entindex );
+	vec3_t toShooter;
+	float flDist;
+
+	VectorCopy( args->origin, out );
+	*pflGrow = 1.0f;
+	if( pShooter )
+	{
+		VectorSubtract( pShooter->origin, args->origin, toShooter );
+		flDist = VectorNormalize( toShooter );
+		if( flDist > 1.0f )
+			VectorMA( args->origin, 22.0f, toShooter, out );
+		*pflGrow = flDist / 160.0f;
+		if( *pflGrow < 1.0f )
+			*pflGrow = 1.0f;
+		if( *pflGrow > 3.0f )
+			*pflGrow = 3.0f;
+	}
+	out[2] += 12.0f;
+}
+
 // Medic (events/medic.sc): iparam1 1 is a heal, a green burst at the target; 2 is
-// poison, a violet burst. A self heal sends the shooter's own origin.
+// poison, a violet burst; 3 is a self heal, sent with the shooter's own origin.
 void EV_SGTC_Medic( struct event_args_s *args )
 {
 	vec3_t origin;
+	float flGrow = 1.0f;
 	int mdl;
 
 	VectorCopy( args->origin, origin );
 	if( args->iparam1 == 3 )	// self heal
 		SGTC_ViewPuffOrigin( args, origin );
+	else
+		SGTC_TargetPuffOrigin( args, origin, &flGrow );
 	// Heals use the green shield glow; steam1 is blue, so a tint could not make it green.
 	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( args->iparam1 == 2 ? "sprites/steam1.spr" : "sprites/shieldglow.spr" );
 	if( mdl <= 0 )
 		return;
 
+	// steam1 frames are 32x48 and shieldglow 64x128, so the scales differ.
 	if( args->iparam1 == 2 )
-		SGTC_PuffBurst( origin, mdl, 200.0f, 90.0f, 255.0f, 14.0f, 4 );
+		SGTC_PuffBurst( origin, mdl, 200.0f, 90.0f, 255.0f, 14.0f, 6, 0.5f * flGrow, 10.0f );
+	else if( args->iparam1 == 1 )
+		SGTC_PuffBurst( origin, mdl, 90.0f, 255.0f, 120.0f, 24.0f, 5, 0.3f * flGrow, 10.0f );
 	else
 		SGTC_PuffBurst( origin, mdl, 90.0f, 255.0f, 120.0f, 24.0f, 4 );
 }
@@ -1436,14 +1470,22 @@ void EV_SGTC_Medic( struct event_args_s *args )
 void EV_SGTC_GoaRegen( struct event_args_s *args )
 {
 	vec3_t origin;
+	float flGrow = 1.0f;
 	int mdl;
 
 	VectorCopy( args->origin, origin );
 	if( args->iparam1 == 1 )	// the shooter
 		SGTC_ViewPuffOrigin( args, origin );
+	else
+		SGTC_TargetPuffOrigin( args, origin, &flGrow );
 	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/shieldglow.spr" );
-	if( mdl > 0 )
+	if( mdl <= 0 )
+		return;
+
+	if( args->iparam1 == 1 )
 		SGTC_PuffBurst( origin, mdl, 120.0f, 255.0f, 150.0f, 28.0f, 5 );
+	else
+		SGTC_PuffBurst( origin, mdl, 120.0f, 255.0f, 150.0f, 28.0f, 5, 0.3f * flGrow, 10.0f );
 }
 
 // zat.sc is NOT hooked by ref Game_HookEvents — keep the old fallback stub.

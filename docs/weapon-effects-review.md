@@ -6,9 +6,10 @@ Branch `goal/weapon-effects-feel`, on top of `716dc00`. Scope: every weapon clas
 
 - **Server, all MP arsenal weapons.** `wepfireall` on a dedicated server (`sg_nox`) gives each weapon, fires its primary, and fires its secondary where the class has one, logging each step. Sweep build: 38 classes registered, 31 given, 31 primaries fired, 11 secondaries fired, 0 retries.
 - **Client, one GUI run per weapon.** Each run loads `sg_nox`, refills stamina, gives the weapon, sets its ammo to 5, fires the primary (or holds the secondary), and takes a screenshot 3 frames after the trigger. `sgtc_fxlog 1` prints one `SGTCFX <event> idx= origin= f1= i1=` line when each client event arrives. A receipt means the client handler ran.
+- **Multiplayer runs with a real local player.** `maxplayers 4`, `sgtc_bot_team 1` and `motdfile nomotd.txt` (the server MOTD window is modal and blocks `+attack`), then `autopick` and `sgtc_loadout_done`, put the local player in the round as a class. `sgtc_test "unarmed 1 2"` then `kill` makes the player a teammate of the bots. A bot is held 100 units ahead with `sgtc_test movebot_2_-1600_1280_100` every frame, because bots keep walking. With `maxplayers 2` the round ends at once and firing is blocked. The frames are from the build at `adb4bed` with the repaired font WADs; the merged tree `70f94f8` was re-run for the events (`mp-medic16`: poison `i1=2`, heal `i1=1`; the regen shot missed that time).
 - **Extra runs** for cases the sweep does not reach: the silenced P90, the charged Zat shot, medic self-heal, the larve detonation, the six shims, the gas release (three runs), and glstaff, Batsup and the satchel shim after the later changes.
 - **Builds.** The sweep and the extra runs used r16 (`hl.so` md5 `1027e860…`, `client.so` md5 `3482aee5…`). The gas, glstaff and Batsup-second-swing runs used r17 (`hl.so` md5 `cc9efb1f…`). The satchel shim and the bolt-light removal were checked on r18 and r19 builds, on glstaff and the satchel shim only. The zatarc flash gate and the colormap test token are on r20. The MP5 click and the entity-count checks are on the later build.
-- **Sound was not heard.** The runs used `-nosound`. Where the code plays a sound, the file was checked on disk. Nothing below claims a sound was heard.
+- **Sound was measured, not heard.** The picture runs used `-nosound`. A separate set of runs recorded the engine's audio output (see "Sound, measured" below). Rows outside that section make no claim about sound beyond the file existing on disk.
 - **Visible effects** come from single screenshot frames. "Not in frame" means the frame did not show the effect; it does not mean the effect is absent.
 - **Evidence files** are in the test scratch folder, not the repo: run logs `one-<tag>.clean`, screenshots `one-shots/<tag>.png`, and the server log `dedi-final3.log`.
 
@@ -18,6 +19,10 @@ Branch `goal/weapon-effects-feel`, on top of `716dc00`. Scope: every weapon clas
 - **Pellet decals and the muzzle light are visible from a fixed position.** Looking down at the floor (`sgtc_test tp -1700 1280 100 0 45`) shows the Spas and USAS pellet decals and the M16 muzzle light on the floor. In the default view at range they are not visible.
 - **Gas grenades do release.** An earlier note said the canister never left the hand. That was a misreading: the canister still in hand is the next one (ammo 5 becomes 4). The release sends `events/throw.sc` with `i1=29`. The gas cloud itself was not captured in any frame.
 - **The glstaff wash came from the bolt's light.** The big lance bolt's dynamic light was orange (255,180,60). At radius 72 it washed the rock near the bolt yellow and white, and at radius 40 it still did. The impact explosion and the laser beams were tested and were not the cause. The light is removed (`aa3e9da`); the glow sprite stays, and the glstaff frame is normal.
+
+- **Teammates could not be healed (`ffdb3a9`).** Team no-collide (`SGTC_ShouldCollide`, `sgtc_team_nocollide 1` by default) also applies to traces. The medic and the regen weapon find their target with a trace, so a teammate was never hit and the heal branch could not run. A debug trace showed the ray passing the teammate 100 units ahead and ending at the world 1,220 units away; with `sgtc_team_nocollide 0` the same shot healed. A counter now makes `SGTC_ShouldCollide` answer 1 during these two traces only; movement collision is unchanged.
+- **Target puffs were inside the target (`adb4bed`).** The server sends the target's origin, the middle of its body, so the puffs were mostly hidden, and a poison puff (a 32x48 sprite at scale 0.2) was a few pixels. They now sit 22 units toward the shooter at chest height, are scaled for the sprite, and grow with distance up to 3x.
+- **Client hang in the menu chain (`1b22090`).** Found while spawning a local player for these runs. `CMenuPanel::SetNextMenu` appends at the tail of the chain, so the three unlink sites never removed their node, and `SgtcPanels_ShowMenu` looped forever when a briefing sat behind the team/class panel and a loadout menu arrived. Without the change 3 of 3 autopick runs hung; with it 8 of 8 passed. This is not a weapon effect, but it blocked every multiplayer run with a player.
 
 ## Missing game assets
 
@@ -68,8 +73,8 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_narcogrenade` | `throw.sc` ×1 (`i1=28`) on release | Same landing point, white burst (`narcoburst-2`). Before frames not captured for this gas | None | — | Same change as mustard |
 | `weapon_nervegrenade` | `throw.sc` on release | Same landing point, white burst (`nerveburst-2`). Before frames not captured | None | — | Same change as mustard |
 | `weapon_smokegrenade` | `throw.sc` on release | Same landing point, blue burst from the steam sprite (`smokeburst-2`). Before frames not captured | None | — | Same change as mustard |
-| `weapon_medic` (CMedicx) | None; heal and poison need a player target in the crosshair | Medic held with the red hurt overlay from the test | `medic.sc` ×1 (`i1=3`, self heal) | A large green puff in front of the view (`medicsec-0`). Before the sprite precache there was no puff (`medicpuff-0`) | Heal and poison on a target are not captured. They need a live shooter and a live teammate in the crosshair. In the multiplayer GUI session the local player stays an observer at 1 health; the Return and 5 keys, `jointeam`, `menuselect`, `+attack` and `+jump` did not spawn it |
-| `weapon_goaregen` (CMedicxgoa) | `goaregen.sc` ×1 (`i1=1`, shooter; no target) | A green puff in front of the view (`goaafter-0`). Before the sprite precache there was only an orange glow at the palm (`goapuff-0`) | None | — | Target heal (`i1=0`) not captured |
+| `weapon_medic` (CMedicx) | On a player in the crosshair, in the multiplayer runs: `medic.sc` `i1=2` (poison on an enemy) and `i1=1` (heal on a teammate) | Poison: blue puffs around the enemy's torso (`mp-medic10-1` to `-3`). Heal: a green aura column on the teammate (`mp-medic14-3` to `-5`). Before: a few pixels at the waist, mostly behind the arm (`mp-medic4-1`), and a heal on a teammate never applied | `medic.sc` ×1 (`i1=3`, self heal) | A large green puff in front of the view (`medicsec-0`). Before the sprite precache there was no puff (`medicpuff-0`) | The teammate heal could not run while `sgtc_team_nocollide` was 1, its default: the trace passed through teammates (`ffdb3a9`). The target puffs were hidden inside the body (`adb4bed`). Heal health 50 to 55 and poison health 100 to 99 were read from the player list |
+| `weapon_goaregen` (CMedicxgoa) | `goaregen.sc` ×1 (`i1=1`, shooter, no target); in the multiplayer runs `i1=0` on a teammate | Shooter: a green puff in front of the view (`goaafter-0`); before the sprite precache only an orange glow at the palm (`goapuff-0`). Target: a green aura around the teammate (`mp-medic15-6`, `-7`); before the change a thin sliver at the hip (`mp-medic14-6`, `-7`) | None | — | Same teammate-trace bug as the medic, fixed in `ffdb3a9`. The regen on a teammate was read from the player list: health 50 to 55 |
 | `weapon_9mmAR` (alias of CMP5) | As `weapon_mp5` | — | — | — | Same class as the MP5 row |
 | `weapon_9mmhandgun` (SP shim → CM92s) | `eagle.sc` ×3 (`sp-9mmhandgun`) | Not checked | None | — | Single-player only |
 | `weapon_crossbow` (SP shim → CPsg1) | `psg1.sc` ×1 | Not checked | None | — | Single-player only |
@@ -77,6 +82,26 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_rpg` (SP shim → CLanceJaffa) | `lance.sc` ×1 | Not checked | None | — | Single-player only |
 | `weapon_satchel` (SP shim → CSgtcC4) | `throw.sc` ×1 (`i1=14`, r18) | Not checked | — | — | Now derives from CSgtcC4 (`fd44f29`) |
 | `weapon_shotgun` (SP shim → CShotgun) | `spas.sc` and `spas2.sc` ×1 | Not checked | — | — | Single-player only |
+
+## Sound, measured
+
+The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so these runs use `SDL_AUDIODRIVER=alsa AUDIODEV=pulse PULSE_SINK=<null sink>`, and `parec` on the sink's monitor records what the engine outputs. Each case plays a marker (three `buttons/blip1.wav` plays, 12 frames apart), waits 90 frames, then does the action. Each wav is then located in the recording by normalized cross-correlation: 1.00 is an exact copy, and mixing with other sounds lowers it. Run `snd-snd2` on the merged tree `70f94f8`, single-player `sg_nox`.
+
+| Case | Sound found | Match | After the marker's last blip |
+|---|---|---|---|
+| MP5 secondary | `weapons/357_cock1.wav` | 0.98 | +1.7 s; the only match in the run |
+| Mustard gas pin pull | `weapons/gren_cock1.wav` | 0.92 | +1.6 s |
+| Mustard release | a `swing` whoosh | 0.56 | +2.3 s, mixed with the grenade's own sounds |
+| Reetou primary | `weapons/reetou.wav` | 0.77 (0.64 alone in `snd3`) | +1.5 s; one event, one play |
+| USAS shot, then reload | `weapons/reload1.wav` | 0.98 | +3.7 s (the shot has no template here) |
+| Shield raise | `weapons/P90recharge.wav` | 0.98 | +1.6 s |
+| Flashbang throw | a `swing` whoosh | 0.47 | +2.2 s |
+| Hand grenade throw | `weapons/swing3.wav` | 1.00 | +2.2 s |
+| Control: marker, no action | none of the above | none | none |
+
+A second `reetou.wav` match (0.98) came 3.4 s after the first in `snd2`. The single-shot run has only one, and only the Reetou event plays the file, so another shooter in that session most likely made it (the single-player map runs enemies). It was not chased.
+
+Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing), and the P90 silencer toggle (silent).
 
 ## Stock-based classes (no stock file edited)
 
@@ -101,6 +126,8 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 7. **Invis shield wall.** Confirmed. The gate needs colormap bit 9, which the test-only token `colormap9_1` sets (`e16e05c`). The secondary then adds one entity (the wall) and the view takes a whole-view yellow-green shield tint (`invisinfo-0`). The load sound was not heard.
 8. **Larve detonation.** The blast itself has sound and damage only. The visible effect is the concussion fade: the view goes grey for several frames when the blast hits a player within 128 units (`larvevis-3`). In the harness the player is on team 0, so the larve's enemy search does not exclude its owner; with teams that check applies.
 9. **P90 silencer toggle** is silent. A click would be a small addition.
+10. **Heal and poison on a target.** Captured in the multiplayer runs (see the medic and goaregen rows). Earlier attempts used `jointeam`, `menuselect` and key presses and stayed an observer; `autopick` after the briefing step spawns the local player as a class, and the pending team and class are applied on the next dead tick.
+11. **Sound.** Measured on a PipeWire null sink (section above): the MP5 click, the gas pin pull, the Reetou shot, the USAS reload, the shield raise cue and the throw whoosh are in the audio output. Nobody has listened to them. Whether they sound right, and at what volume, is still a human check.
 
 ## Commits on this branch since `716dc00`
 
@@ -117,3 +144,6 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `ff34e5c` Draw the zatarc hit flash only for far hits
 - `e16e05c` Add a test token that sets colormap bit 9 for the invis shield gate
 - `4596d74` Give the MP5 secondary a dry-fire click (approved stock edit)
+- `1b22090` Unlink queued menus by relinking, not appending
+- `ffdb3a9` Let the medic and Goa'uld regen weapons trace teammates
+- `adb4bed` Draw the medic and regen target puffs where the target can be seen
