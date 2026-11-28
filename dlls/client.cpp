@@ -69,7 +69,7 @@ void LinkUserMessages( void );
  */
 void set_suicide_frame( entvars_t *pev )
 {       
-	if( !FStrEq( STRING( pev->model ), "models/player.mdl" ) )
+	if( !FStrEq( STRING( pev->model ), "models/player.mdl" ) && !FStrEq( STRING( pev->model ), "models/player/oneill/oneill.mdl" ) )
 		return; // allready gibbed
 
 	//pev->frame = $deatha11;

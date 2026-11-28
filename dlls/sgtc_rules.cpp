@@ -121,6 +121,8 @@ const char *const SGTC_TeamSpawnClassname[SGTC_MAX_SGTC_TEAMS] =
 // ===========================================================================
 CStargateTeamDM::CStargateTeamDM( void )
 {
+	// Deathmatch sets sv_clienttrace back to 1; the single-player rules set it to 0.
+	CVAR_SET_FLOAT( "sv_clienttrace", 1 );
 	// ref ctor @0x188824: base CHalfLifeTeamplay ctor already read mp_teamlist
 	// into m_szTeamList ("hgrunt;scientist" from game.cfg); the .so ctor then
 	// OVERWRITES this+0x18 (m_szTeamList) with "Torri;Goa'uld", so mp_teamlist
