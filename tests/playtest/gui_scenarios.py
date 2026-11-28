@@ -7,6 +7,7 @@ Usage:
     gui_scenarios.py chain   <out>                     chain 5 -> 11 -> 10, then autopick (menu chain hang regression)
     gui_scenarios.py weapons <out> <weapon list file>  give, use and fire every listed weapon (client effects)
     gui_scenarios.py stamina <out>                     set the player's stamina to 20 and sample it for 25 s of game time
+    gui_scenarios.py flash   <out>                     lift the player into open air and spawn a flash at the eyes
 
 A GUI run executes the file one command per frame: `wait` is one frame, so the scripts build
 longer delays from nested aliases (a long run of plain `wait` lines overflows the command buffer).
@@ -58,6 +59,16 @@ def scenario_stamina():
     return lines
 
 
+def scenario_flash():
+    # sgtc_test "flashair" lifts the host into open air and spawns an info_flash at the eyes. Two
+    # screenshots: before, and about four seconds after, when a surviving flash has faded the screen
+    # to white (average luma above 200 against about 90 normally; the old code gave 76).
+    return ['maxplayers 8', 'sgtc_bot_quota 0', 'mp_wepselmode 0', 'sv_cheats 1', 'sgtc_test_enable 1',
+            PRELUDE[2], PRELUDE[3], 'map sg_nox', 'w100;w100;w100;w100;w100', 'hidevgui', 'w10', 'autopick',
+            'w100;w100', 'hidevgui', 'w10', 'god', 'w100', 'echo STEP_before', 'screenshot', 'w10',
+            'sgtc_test "flashair"', 'w100;w100;w100', 'echo STEP_after', 'screenshot', 'w100', 'quit']
+
+
 def scenario_weapons(path):
     weapons = [w.strip() for w in open(path) if w.strip()]
     lines = PRELUDE + ['mp_wepselmode 0', 'sv_cheats 1', 'sgtc_fxlog 1',
@@ -80,6 +91,8 @@ def main():
         lines = scenario_menus()
     elif kind == 'chain':
         lines = scenario_chain()
+    elif kind == 'flash':
+        lines = scenario_flash()
     elif kind == 'stamina':
         lines = scenario_stamina()
     elif kind == 'weapons' and len(sys.argv) == 4:

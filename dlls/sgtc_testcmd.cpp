@@ -395,6 +395,7 @@ static void cmd_hurtplayer( int n );
 static void cmd_setammo( int n );
 static void cmd_setstamina( int n );
 static void cmd_flashtest( void );
+static void cmd_flashair( void );
 static void cmd_colormap9( int n );
 static CBaseEntity *SGTC_TestFindEntity( const char * );
 static void cmd_useentdest( const char *pszTarget );
@@ -605,6 +606,8 @@ static int SGTC_TestRunToken( const char *pszToken )
 		cmd_setstamina( atoi( pszToken + 8 ) );
 	else if( !strcmp( pszToken, "flashtest" ) )
 		cmd_flashtest();
+	else if( !strcmp( pszToken, "flashair" ) )
+		cmd_flashair();
 	else if( !strncmp( pszToken, "colormap9_", 10 ) )
 		cmd_colormap9( atoi( pszToken + 10 ) );
 	else
@@ -754,6 +757,52 @@ static void cmd_setstamina( int n )
 	pPlayer->m_iStamina = n;
 	pPlayer->SGTC_UpdateStamina();
 	test_out( "SGTCTEST {\"cmd\":\"setstamina\",\"n\":%d}", n );
+}
+
+// SGTCTEST flashair
+//
+// The GUI form of flashtest. It lifts the first player into open air (noclip, so nothing is in the
+// way), then spawns an info_flash right in front of the eyes. At that height no floor lies within
+// 256 units below the flash and the line to the player's eyes is clear, which is the case the old
+// CFlash::Spawn removed: with the fix the player gets the white fade (CFlash::MyTouch), without it
+// the flash is gone before it can touch. The player stays up there until the run ends.
+static void cmd_flashair( void )
+{
+	CBasePlayer *p = SGTC_TestPlayerAt( 1 );
+	if( !p || !p->IsAlive() )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"flashair\",\"error\":\"no live player\"}" );
+		return;
+	}
+
+	// Find a height whose point and spot are empty space with no floor within 260 units below.
+	float flLift = 0.0f;
+	for( float h = 320.0f; h <= 1600.0f; h += 40.0f )
+	{
+		const Vector vecEye = p->pev->origin + Vector( 0, 0, h );
+		TraceResult trDown;
+		UTIL_TraceLine( vecEye, vecEye - Vector( 0, 0, 260.0f ), ignore_monsters, p->edict(), &trDown );
+		if( UTIL_PointContents( vecEye ) == CONTENTS_EMPTY && trDown.flFraction >= 1.0f && !trDown.fStartSolid )
+		{
+			flLift = h;
+			break;
+		}
+	}
+	if( flLift == 0.0f )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"flashair\",\"error\":\"no open air above the player\"}" );
+		return;
+	}
+
+	p->pev->movetype = MOVETYPE_NOCLIP;
+	p->pev->velocity = g_vecZero;
+	UTIL_SetOrigin( p->pev, p->pev->origin + Vector( 0, 0, flLift ) );
+	UTIL_MakeVectors( p->pev->v_angle );
+	const Vector vecSpot = p->pev->origin + p->pev->view_ofs + gpGlobals->v_forward * 40.0f;
+	CBaseEntity *pFlash = CBaseEntity::Create( "info_flash", vecSpot, g_vecZero, NULL );
+	const int iKill = ( pFlash && FBitSet( pFlash->pev->flags, FL_KILLME ) ) ? 1 : 0;
+	test_out( "SGTCTEST {\"cmd\":\"flashair\",\"lift\":%.0f,\"created\":%d,\"killme\":%d}",
+		flLift, pFlash ? 1 : 0, iKill );
 }
 
 // SGTCTEST flashtest

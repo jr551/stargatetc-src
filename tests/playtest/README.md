@@ -69,6 +69,9 @@ The engine ignores `+exec` and `+map` in GUI mode, so a scenario goes in
   client at 100% CPU. A healthy run ends with `EXIT=0` and both `STEP_` markers in the log.
 - `weapons`: gives, selects and fires every weapon in a list with `sgtc_fxlog 1`, so the log
   shows one `SGTCFX` line per client effect.
+- `flash`: `flashair` lifts the host into open air and spawns an `info_flash` at the eyes; take the two screenshots it
+  writes and compare their luma (`ffmpeg -vf signalstats`): about 90 before and above 200 after on the fixed code, 76 after on
+  the old one. `check_dedicated.py flashair` checks the log line.
 - `stamina`: sets the host's stamina to 20 and samples it while standing still; `check_dedicated.py stamina`
   fails when it does not come back (the half-second think tail never ran before d9c3e12).
 - `map`: used by `gui_map_sweep.sh` for the per-map client check.
