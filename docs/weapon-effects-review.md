@@ -103,6 +103,10 @@ A second `reetou.wav` match (0.98) came 3.4 s after the first in `snd2`. The sin
 
 Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing), and the P90 silencer toggle (silent).
 
+## Final sweep on the merged tree
+
+43 single-player GUI runs on `70f94f8` (tags `fin-*`, `-nosound`): the 31 primaries and 12 secondaries. All exited 0 and no log shows a signal. The primaries without a receipt are the ones the table already lists: the medic (no target in single player), the mine and the MP5 (stock events are not logged). The secondaries without a receipt are by design: the M16, PSG1 and zatarc zoom, the MP5 click, the invis wall, the P90 silencer and the Tac HUD cycle. `reetou2.sc`, `lance2.sc`, `main2.sc`, the gacgoa throw and the medic self heal each logged one receipt. The primary frames (contact sheet `sheet-fin-primary.png` in the scratch folder) show no whole-view wash: glstaff and zatarc are normal and the shield shows its gold glow. The Torri hand grenade viewmodel crash that the playtest session found (`v_grenadeT.mdl`, fixed on its branch) is not reachable from these runs, because the single-player player is on team 0.
+
 ## Stock-based classes (no stock file edited)
 
 - **`weapon_handgrenade`** (`dlls/handgrenade.cpp`). The throw cue comes from `dlls/sgtc_throwfx.cpp`, which watches each player's handgrenade ammo once per frame and sends `events/throw.sc` when it drops.
