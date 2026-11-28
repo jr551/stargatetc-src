@@ -26,6 +26,8 @@ void BotChatTaunt(bot_t &pBot, edict_t *victim_edict);
 void BotChatWhine(bot_t &pBot);
 void BotChatTalk(bot_t &pBot);
 void BotChatEndGame(bot_t &pBot);
+void BotChatHear(edict_t *speaker, const char *text);   // SGTC: a human said something
+void BotChatHumanJoined(edict_t *human);                 // SGTC: a human came in
 
 // bot_combat.cpp:
 void BotAimPre( bot_t &pBot );
