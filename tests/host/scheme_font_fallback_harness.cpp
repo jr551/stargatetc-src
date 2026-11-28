@@ -239,6 +239,21 @@ int main( int argc, char **argv )
 		snprintf( detail, sizeof( detail ), "plat=%s size=%dx%d", font->getPlat() ? "set" : "NULL", w, h );
 		report( corrupt ? "corrupt-scheme-measures" : name,
 			font->getPlat() != NULL && w > 0 && h > 0, detail );
+
+		// FreeVGUI hands plain `char` values to getCharABCwide, so an accented letter arrives
+		// negative (0xe9 as -23). It must measure as its own cell, not as the blank cell 0 the
+		// bitmap font clamps a negative code to (one pixel: the next letter was drawn over it).
+		int a1 = 0, b1 = 0, c1 = 0, a2 = 0, b2 = 0, c2 = 0, a3 = 0, b3 = 0, c3 = 0, a0 = 0, b0 = 0, c0 = 0;
+		font->getCharABCwide( (char)0xe9, a1, b1, c1 );
+		font->getCharABCwide( 0xe9, a2, b2, c2 );
+		font->getCharABCwide( (char)0xe0, a3, b3, c3 );
+		font->getCharABCwide( 0, a0, b0, c0 );
+		int pairW = 0, pairH = 0;
+		font->getTextSize( "\xe9\xe0", pairW, pairH );
+		const int w1 = a1 + b1 + c1, w2 = a2 + b2 + c2, w3 = a3 + b3 + c3;
+		snprintf( detail, sizeof( detail ), "e9 as char %d, as int %d, e0 %d, pair %d, cell0 %d",
+			w1, w2, w3, pairW, a0 + b0 + c0 );
+		report( "accent-width", w1 == w2 && pairW == w1 + w3, detail );
 	}
 
 	if( s_corruptScheme )

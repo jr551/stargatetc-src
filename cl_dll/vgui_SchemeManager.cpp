@@ -28,6 +28,47 @@
 cvar_t *g_CV_BitmapFonts;
 
 
+//-----------------------------------------------------------------------------
+// Purpose: vgui::Font that accepts the sign-extended character codes FreeVGUI
+//			hands it.
+//
+// FreeVGUI's text code passes plain `char` values to getCharABCwide( int ):
+// TextImage::paint and getTextSizeWrapped (`int ch = text[i]`),
+// Font::getTextSize (`char ch = str[i]`), the edit and text controls, and the
+// score panel here. char is signed on x86, so a byte of 0x80 or more (every
+// accented letter of the French UI text: "Crédits", "Spectateur", the briefings)
+// arrives as -128..-1. The bitmap font clamps a negative code to cell 0, a blank
+// one-pixel cell, so an accented letter advanced the pen by a pixel and the next
+// letter was drawn over it ("caféau lait", "ééfin" for "café au lait", "été fin").
+// Drawing already used the unsigned byte, so only the advance was wrong.
+// getTextSize calls getCharABCwide through the vtable, so this one override also
+// fixes the measured widths the wrapping and the label sizes come from.
+//-----------------------------------------------------------------------------
+class CSgtcFont : public vgui::Font
+{
+public:
+	CSgtcFont( const char *name, void *pFileData, int fileDataLen, int tall, int wide, float rotation, int weight, bool italic, bool underline, bool strikeout, bool symbol )
+		: vgui::Font( name, pFileData, fileDataLen, tall, wide, rotation, weight, italic, underline, strikeout, symbol )
+	{
+	}
+
+	virtual void getCharABCwide( int ch, int &a, int &b, int &c )
+	{
+		if ( ch < 0 && ch >= -128 )
+			ch += 256;
+
+		vgui::Font::getCharABCwide( ch, a, b, c );
+	}
+};
+
+// Every font in the scheme list is a CSgtcFont; vgui::Font has no virtual destructor, so
+// delete it as the type it was made as.
+static void Sgtc_DeleteSchemeFont( vgui::Font *pFont )
+{
+	delete static_cast<CSgtcFont *>( pFont );
+}
+
+
 void Scheme_Init()
 {
 	g_CV_BitmapFonts = gEngfuncs.pfnRegisterVariable("bitmapfonts", "1", 0);
@@ -88,7 +129,7 @@ CSchemeManager::CScheme::~CScheme()
 	// only delete our font pointer if we own it
 	if ( ownFontPointer )
 	{
-		delete font;
+		Sgtc_DeleteSchemeFont( font );
 	}
 }
 
@@ -750,7 +791,7 @@ buildDefaultFont:
 				}
 			}
 
-			m_pSchemeList[i].font = new vgui::Font(
+			m_pSchemeList[i].font = new CSgtcFont(
 				m_pSchemeList[i].fontName,
 				pFontData,
 				fontFileLength,
@@ -772,8 +813,8 @@ buildDefaultFont:
 			{
 				gEngfuncs.Con_Printf( "Bitmap font %s (%d bytes) is unreadable, using system font %s\n",
 					fontFilename, fontFileLength, m_pSchemeList[i].fontName );
-				delete m_pSchemeList[i].font;
-				m_pSchemeList[i].font = new vgui::Font(
+				Sgtc_DeleteSchemeFont( m_pSchemeList[i].font );
+				m_pSchemeList[i].font = new CSgtcFont(
 					m_pSchemeList[i].fontName,
 					NULL,
 					0,

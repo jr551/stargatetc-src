@@ -3025,10 +3025,12 @@ static float s_flSgtcRawInputSaved = -1.0f;
 // _windowed_mouse is an older Xash cvar. Builds without it print "Cvar_Set: variable
 // '_windowed_mouse' not found" (and an unknown-command line for the console path) into
 // the on-screen notify area every time a menu opens or closes, so only touch it when
-// the engine has it.
+// the engine has it. The existence test reads the string value (empty when the cvar is
+// unknown): pfnGetCvarPointer logs a "client tried to get non-existent cvar" warning.
 static void SgtcPanels_SetWindowedMouse( float flValue )
 {
-	if ( !gEngfuncs.pfnGetCvarPointer( "_windowed_mouse" ) )
+	const char *pszCurrent = gEngfuncs.pfnGetCvarString( "_windowed_mouse" );
+	if ( !pszCurrent || !pszCurrent[0] )
 		return;
 	gEngfuncs.Cvar_SetValue( "_windowed_mouse", flValue );
 	char szCmd[40];
