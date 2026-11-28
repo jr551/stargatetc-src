@@ -633,7 +633,25 @@ void CSgtcBriefingView::SetStyle( vgui::Font *pFont, int r, int g, int b )
 
 void CSgtcBriefingView::SetText( const char *pszText )
 {
-	m_Text = pszText ? pszText : "";
+	// The briefing and credits files are UTF-8, but VGUI1 indexes its font sheet by raw
+	// byte, so "Crédits" drew as two glyphs. Convert line by line: L10n_ToLegacy keeps
+	// at most 2 KB per call, and a long briefing is a few KB. Already-legacy text passes
+	// through unchanged, so converted callers are safe.
+	m_Text.clear();
+	if ( pszText )
+	{
+		const char *pszLine = pszText;
+		while ( *pszLine )
+		{
+			const char *pszEnd = strchr( pszLine, '\n' );
+			const size_t cbLine = pszEnd ? (size_t)( pszEnd - pszLine ) : strlen( pszLine );
+			std::string line( pszLine, cbLine );
+			m_Text += L10n_ToLegacy( line.c_str() );
+			if ( pszEnd )
+				m_Text += '\n';
+			pszLine += cbLine + ( pszEnd ? 1 : 0 );
+		}
+	}
 	Layout();
 }
 

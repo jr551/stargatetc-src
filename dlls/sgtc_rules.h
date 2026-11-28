@@ -170,6 +170,7 @@ protected:
 	BOOL SGTC_ThinkPlayMusic( void );	// ref Think @0x1945b7..0x194b2b PlayMusic paths (modes 1/4)
 	void SGTC_ThinkGameMode34Side( void );	// ref Think @0x1929ce mode 3/4 tails
 	void SGTC_ThinkEndtroundRollover( void );	// ref Think endtround+hasplayed tails
+	void SGTC_LeaveObserverClock( CBasePlayer *pPlayer );	// observer -> player: swap the spectator HUD clock (SetRndTim mode 2) for the live one (sgtc_rules_spawn.cpp)
 
 	int m_iSGTCTeamScores[SGTC_MAX_SGTC_TEAMS];
 	BOOL m_bRoundOver;
