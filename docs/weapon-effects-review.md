@@ -46,16 +46,16 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 
 | Weapon (class) | Primary: receipt | Primary: on screen | Secondary: receipt | Secondary: on screen | Notes |
 |---|---|---|---|---|---|
-| `weapon_m16` (CM16) | `m16.sc` ×3; ×5 in the flash run | M16 held with scope; a warm tint on the near rock in the first frame (`m16flash-0`). Fired at the floor from a fixed position, the muzzle light warms the whole floor (`m16floor-0`). No flash sprite | Zoom; no event by design | Zoomed view, scope visible | Muzzle light radius 32 (see commit 37e9a4f). The scope toggle now plays a click (`ca3e921`) |
-| `weapon_p90` (CP90) | `p90.sc` ×5 | Held; no flash in frame | Silencer toggle and FOV; no event by design | Held | Silenced shot: `p90l.sc` ×1 (extra run). The silencer toggle now plays a click (`ca3e921`) |
-| `weapon_psg1` (CPsg1) | `psg1.sc` ×1 | Held; no flash in frame | Zoom stages; no event by design | Not checked | Each zoom step now plays a click (`ca3e921`) |
-| `weapon_m92s` (CM92s, Eagle) | `eagle.sc` ×3 | Held; no flash in frame | None | — | |
+| `weapon_m16` (CM16) | `m16.sc` ×3; ×5 in the flash run | M16 held with scope; a warm tint on the near rock in the first frame (`m16flash-0`). Fired at the floor from a fixed position, the muzzle light warms the whole floor (`m16floor-0`). The flash sprite is there: ten consecutive frames of sustained fire all show it (`burst-m16`); the single frame 3 frames after the trigger had simply missed it | Zoom; no event by design | Zoomed view, scope visible | Muzzle light radius 32 (see commit 37e9a4f). The scope toggle now plays a click (`ca3e921`) |
+| `weapon_p90` (CP90) | `p90.sc` ×5 | Flash sprite in every frame of sustained fire (`burst-p90`) | Silencer toggle and FOV; no event by design | Held | Silenced shot: `p90l.sc` ×1 (extra run). The silencer toggle now plays a click (`ca3e921`) |
+| `weapon_psg1` (CPsg1) | `psg1.sc` ×1 | Before: no flash sprite in ten consecutive frames (`burst-psg1`), because `v_psg1.mdl` has no muzzle flash event. After: a flash star at the barrel (`burst-psg1b`), drawn by the handler except behind the scope (`25f8500`) | Zoom stages; no event by design | Not checked | Each zoom step now plays a click (`ca3e921`) |
+| `weapon_m92s` (CM92s, Eagle) | `eagle.sc` ×3 | Flash sprite on each shot (`burst-m92s`) | None | — | |
 | `weapon_usas` (CUsas) | `usas.sc` ×3; ×5 in the flash run | Muzzle flash visible at the first frame after the shot (`usasflash-0`). Pellet decals are visible when fired down at the floor from a fixed position (`usasfloor-0`) | None | — | Client draws 8 pellets at 1024 units, matching the server (commit 880a52c) |
 | `weapon_spas` (CShotgun, stock) | `spas.sc` and `spas2.sc` ×1 | Pellet decals are visible when fired down at the floor from a fixed position (`spasfloor-0`); not visible in the default view at range | Stock secondary is empty | — | Client draws 8 pellets at 2048 units (commit 880a52c). Stock class |
 | `weapon_mp5` (CMP5, stock) | None; stock `mp5.sc` is not logged | Held | Dry-fire click added (approved stock edit, `4596d74`); no projectile or ammo, as the reference | Held | Click not heard (`-nosound`) |
 | `weapon_reetou` (CReetou) | `reetou.sc` ×1 | The projectile is in flight as a cyan ball ahead of the view (`reetouflight-0`) | `reetou2.sc` ×1 | Held; no effect in frame | |
 | `weapon_zat` (CZat) | `zata.sc` ×1; charged `zatb.sc` ×1 (extra run) | Lightning beam from the muzzle to the target (`zatafter.png`). Before the sprite precache there was no beam (`zat.png`) | None | — | Zat wave sprite `zatwave.spr` still missing. Beam fixed by `ba3e7fe` |
-| `weapon_zatarc` (CZatarc) | `zatarc.sc` ×1 | Normal on the r20 build; the impact flare still shows | Zoom; no event by design | Not checked | The tint was the full-alpha `Muz1` sprite at close hits (bisected). Now drawn only for hits beyond 300 units (`ff34e5c`). Before `zatarc.png` (r16), after `zatarc-fix.png` (r20) |
+| `weapon_zatarc` (CZatarc) | `zatarc.sc` ×1 | Normal on the r20 build; the impact flare still shows | Zoom; no event by design | Not checked | The zoom steps now play a click (`ace710a`). The tint was the full-alpha `Muz1` sprite at close hits (bisected). Now drawn only for hits beyond 300 units (`ff34e5c`). Before `zatarc.png` (r16), after `zatarc-fix.png` (r20) |
 | `weapon_tacgun` (CTacgun) | `tac.sc` ×1, ×2 in the dot run | A red beam from the device to the rock on the shot, visible in the first frame: a thin streak at 1 unit (`tacafter-0`) and a clear band at 3 units, the change in `6ba79dd` (`tacwide-0`). The beam lasts 0.1 s, so frame 3 is past it. The red dot in earlier frames is the HUD crosshair; the dot itself is not clearly visible | HUD info cycle and `tacact.wav`; no event by design | Held; HUD change not confirmed | |
 | `weapon_main` (CMainDieu, Energie) | `main.sc` ×1, `mains.sc` ×1 (stop) | Held; beam streak visible from the device | `main2.sc` ×1 | Hand only; no beam in frame | Live beam from an earlier commit (29e11d8) |
 | `weapon_glstaff` (CBigLanceJaffa) | `biglance.sc` ×1 | Washed white and pink on r16 and r17 from the bolt's light. Normal on r19 (frame checked) | None | — | Light removed in `aa3e9da`; glow sprite kept. Before `glstaff.png` (r16), after `glstaff-nodl-0.png` (r19) |
@@ -102,11 +102,12 @@ The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so the
 | M16 scope toggle (`snd4`) | `weapons/357_cock1.wav` | 0.95 | +1.5 s |
 | P90 silencer toggle (`snd4`) | `weapons/357_cock1.wav` | 0.95 | +1.5 s |
 | PSG1 zoom, two steps (`snd5`) | `weapons/357_cock1.wav` | 0.95, 0.95 | +1.8 s and 1.6 s later |
+| Zatarc zoom, three steps (`sndzarc`) | `weapons/357_cock1.wav` | 0.95 each | +1.6 s, then every 1.6 s |
 | Control: marker, no action | none of the above | none | none |
 
 A second `reetou.wav` match (0.98) comes 3.4 s after the shot, on the baseline build too: the viewmodel's `tir1a` sequence plays it again.
 
-Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing).
+The coujaf miss swing is audible now (a swing whoosh, peak rms 7308 in `allfin1`; silent in `allbase1`). Not measured: the coujaf `nightstrike.wav` (missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing).
 
 ## Final sweep on the merged tree
 
@@ -183,7 +184,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 6. **Batsup follow-up swing** (`batsup2.sc`) confirmed with 36- and 40-frame gaps. The window is about 0.5–0.75 s after the first swing; 6, 25 and 50 frames miss it.
 7. **Invis shield wall.** Confirmed. The gate needs colormap bit 9, which the test-only token `colormap9_1` sets (`e16e05c`). The secondary then adds one entity (the wall) and the view takes a whole-view yellow-green shield tint (`invisinfo-0`). The load sound was not heard.
 8. **Larve detonation.** The blast itself has sound and damage only. The visible effect is the concussion fade: the view goes grey for several frames when the blast hits a player within 128 units (`larvevis-3`). In the harness the player is on team 0, so the larve's enemy search does not exclude its owner; with teams that check applies.
-9. **P90 silencer toggle, M16 scope and PSG1 zoom** were silent. All three now play the dry-fire click (`ca3e921`), measured in the audio output. The zatarc zoom is still silent.
+9. **P90 silencer toggle, M16 scope and PSG1 zoom** were silent. All three now play the dry-fire click (`ca3e921`), measured in the audio output. The zatarc zoom steps were silent too and now click as well (`ace710a`).
 10. **Heal and poison on a target.** Captured in the multiplayer runs (see the medic and goaregen rows). Earlier attempts used `jointeam`, `menuselect` and key presses and stayed an observer; `autopick` after the briefing step spawns the local player as a class, and the pending team and class are applied on the next dead tick.
 11. **Sound.** Measured on a PipeWire null sink (section above): the MP5 click, the gas pin pull, the Reetou shot, the USAS reload, the shield raise cue and the throw whoosh are in the audio output. Nobody has listened to them. Whether they sound right, and at what volume, is still a human check.
 
@@ -206,3 +207,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `ffdb3a9` Let the medic and Goa'uld regen weapons trace teammates
 - `adb4bed` Draw the medic and regen target puffs where the target can be seen
 - `ca3e921` Add a click to the M16 scope, PSG1 zoom and P90 silencer toggles
+- `1f8888a` Do not play the Reetou shot twice for the shooter
+- `1d826a6` Play the throw whoosh on its own channel so it stops cutting the charge sound
+- `25f8500` Draw a muzzle flash for the PSG1
+- `ace710a` Add a click to the zatarc zoom steps
