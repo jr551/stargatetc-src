@@ -68,6 +68,8 @@ extern qboolean g_auto_waypoint;
 extern void fast_random_seed(unsigned int seed);
 extern void BotChatHear( edict_t *speaker, const char *text );
 extern void BotChatHumanJoined( edict_t *human );
+extern void BotLearn_OnKill( edict_t *victim, edict_t *attacker );
+extern void BotLearn_Command( void );
 class CStargateTeamDM;
 extern CStargateTeamDM *SGTC_GetTeamDMRules( void );
 
@@ -79,6 +81,13 @@ int sgtc_bot_rescue_enabled = 1;
 int sgtc_bot_hpb_enabled = 1;
 // Bots stop to recover when stamina runs low (dlls/sgtc_bots_stamina.cpp).
 int sgtc_bot_stamina_enabled = 1;
+// Learning from the people in the game (bots/jk_botti/bot_learn.cpp). The
+// test switch lets bots stand in for people in a headless run.
+int sgtc_bot_learn_enabled = 1;
+// Bots created without an explicit skill land one level either side of
+// sgtc_bot_skill (bots/jk_botti/bot.cpp).
+int sgtc_bot_skill_spread_enabled = 1;
+int sgtc_bot_learn_test = 0;
 // bot_radio mode (0 off, 1 obey, 2 obey+talk) and per-bot rate, cached for the
 // bot layer's radio decisions (bots/jk_botti/bot_radio.cpp).
 int sgtc_bot_radio_mode = 2;
@@ -101,6 +110,9 @@ static cvar_t sgtc_bot_roam = { "sgtc_bot_roam", "1", FCVAR_SERVER };
 static cvar_t sgtc_bot_rescue = { "sgtc_bot_rescue", "1", FCVAR_SERVER };
 static cvar_t sgtc_bot_hpb = { "sgtc_bot_hpb", "1", FCVAR_SERVER, 1.0f, NULL };
 static cvar_t sgtc_bot_stamina = { "sgtc_bot_stamina", "1", FCVAR_SERVER, 1.0f, NULL };
+static cvar_t sgtc_bot_learn = { "sgtc_bot_learn", "1", FCVAR_SERVER, 1.0f, NULL };
+static cvar_t sgtc_bot_skill_spread = { "sgtc_bot_skill_spread", "1", FCVAR_SERVER, 1.0f, NULL };
+static cvar_t sgtc_bot_learn_test_cvar = { "sgtc_bot_learn_test", "0", FCVAR_SERVER, 0.0f, NULL };
 // Fully initialised: the warning gate counts -Wmissing-field-initializers
 // per sgtc_* file, and the baseline predates these cvars.
 static cvar_t sgtc_bot_kit = { "sgtc_bot_kit", "1", FCVAR_SERVER, 0.0f, NULL };
@@ -138,6 +150,9 @@ static void SGTC_Bots_SyncCvars( void )
 	sgtc_bot_rescue_enabled = ( sgtc_bot_rescue.value != 0.0f ) ? 1 : 0;
 	sgtc_bot_hpb_enabled = ( sgtc_bot_hpb.value != 0.0f ) ? 1 : 0;
 	sgtc_bot_stamina_enabled = ( sgtc_bot_stamina.value != 0.0f ) ? 1 : 0;
+	sgtc_bot_learn_enabled = ( sgtc_bot_learn.value != 0.0f ) ? 1 : 0;
+	sgtc_bot_skill_spread_enabled = ( sgtc_bot_skill_spread.value != 0.0f ) ? 1 : 0;
+	sgtc_bot_learn_test = ( sgtc_bot_learn_test_cvar.value != 0.0f ) ? 1 : 0;
 
 	// bot_radio: 0 off, 1 obey orders, 2 obey + talk on its own.
 	sgtc_bot_radio_mode = (int)sgtc_bot_radio.value;
@@ -1392,6 +1407,10 @@ void SGTC_Bots_OnPlayerKilled( int victim_index, const char *weapon_name, int at
 	if( FNullEnt( pent ) )
 		return;
 
+	// What the bots learn from people: every death a person is part of, and
+	// who beat whom (bots/jk_botti/bot_learn.cpp). Not only bot victims.
+	BotLearn_OnKill( pent, attacker_index > 0 ? INDEXENT( attacker_index ) : NULL );
+
 	index = UTIL_GetBotIndex( pent );
 
 	if( index < 0 )
@@ -2058,7 +2077,8 @@ static void SGTC_Bots_CommandAdd( void )
 {
 	const int argc = CMD_ARGC();
 	const int requested = ( argc > 1 && CMD_ARGV( 1 )[0] ) ? atoi( CMD_ARGV( 1 ) ) : 1;
-	int skill = ( argc > 2 && CMD_ARGV( 2 )[0] ) ? atoi( CMD_ARGV( 2 ) ) : default_bot_skill;
+	const int skill_given = ( argc > 2 && CMD_ARGV( 2 )[0] ) ? 1 : 0;
+	int skill = skill_given ? atoi( CMD_ARGV( 2 ) ) : default_bot_skill;
 
 	// A command-line +sgtc_bot_add runs before a map is loaded. Creating a fake
 	// client then calls into a player factory and a world that do not exist yet,
@@ -2124,7 +2144,9 @@ static void SGTC_Bots_CommandAdd( void )
 	{
 		const int before = SGTC_Bots_CountUsed();
 
-		BotCreate( NULL, NULL, skill, -1, -1, -1 );
+		// No skill on the command line: let the bot pick its own level around
+		// the server's setting (sgtc_bot_skill_spread).
+		BotCreate( NULL, NULL, skill_given ? skill : -1, -1, -1, -1 );
 
 		if( SGTC_Bots_CountUsed() > before )
 			added++;
@@ -2296,6 +2318,9 @@ void SGTC_Bots_Init( DLL_FUNCTIONS *gameApi, enginefuncs_t *engineApi )
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_rescue );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_hpb );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_stamina );
+	SGTC_RegisterOrAdoptCvar( &sgtc_bot_learn );
+	SGTC_RegisterOrAdoptCvar( &sgtc_bot_skill_spread );
+	SGTC_RegisterOrAdoptCvar( &sgtc_bot_learn_test_cvar );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_kit );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_weaponlog );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_radio );
@@ -2319,6 +2344,7 @@ void SGTC_Bots_Init( DLL_FUNCTIONS *gameApi, enginefuncs_t *engineApi )
 		engineApi->pfnAddServerCommand( "sgtc_bot_add", SGTC_Bots_CommandAdd );
 		engineApi->pfnAddServerCommand( "sgtc_bot_kick", SGTC_Bots_CommandKick );
 		engineApi->pfnAddServerCommand( "sgtc_bot_hear", SGTC_Bots_CommandHear );
+		engineApi->pfnAddServerCommand( "sgtc_learn", BotLearn_Command );
 		// A command line/config value can create this cvar before the DLL loads;
 		// the engine then refuses the command ("already defined as a var").
 		// The cvar still works, so only install the handler when it is free.
