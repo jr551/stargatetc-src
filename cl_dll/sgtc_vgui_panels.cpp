@@ -258,6 +258,29 @@ private:
 };
 int CSgtcHandler_InputDiag::s_iLastX = 0;
 int CSgtcHandler_InputDiag::s_iLastY = 0;
+
+// Chain edits. CMenuPanel::SetNextMenu appends at the tail of the chain, so it
+// cannot drop a node: unlinking with p->SetNextMenu( p->GetNextMenu()->GetNextMenu() )
+// left the node in place and the walks below spun forever (a client hang whenever a
+// queued briefing sat behind the team/class panel when a loadout menu arrived).
+// These replace the link instead, and clear the dropped panel's own next so a reused
+// singleton panel cannot carry a stale tail back into the chain.
+static void SgtcPanels_UnlinkNext( CMenuPanel *pPrev )
+{
+	CMenuPanel *pDrop = pPrev->GetNextMenu();
+
+	pPrev->ReplaceNextMenu( pDrop->GetNextMenu() );
+	pDrop->ReplaceNextMenu( NULL );
+}
+
+static void SgtcPanels_PopFront( void )
+{
+	CMenuPanel *pFront = gViewPort->m_pCurrentMenu;
+
+	gViewPort->m_pCurrentMenu = pFront->GetNextMenu();
+	pFront->ReplaceNextMenu( NULL );
+}
+
 // The SGTC server never sends stock TFC menu ids (2..9); any such node in the
 // chain is a leftover singleton that would pop over an SGTC screen when the
 // front advances (the "stale menu-2" ghost). Drop hidden stock nodes before
@@ -269,14 +292,14 @@ static void SgtcPanels_PruneStockMenus( void )
 		&& !gViewPort->m_pCurrentMenu->isVisible()
 		&& SgtcPanels_IsStockMenuId( gViewPort->m_pCurrentMenu->GetMenuID() ) )
 	{
-		gViewPort->m_pCurrentMenu = gViewPort->m_pCurrentMenu->GetNextMenu();
+		SgtcPanels_PopFront();
 	}
 
 	for ( CMenuPanel *p = gViewPort->m_pCurrentMenu; p && p->GetNextMenu(); )
 	{
 		CMenuPanel *pNext = p->GetNextMenu();
 		if ( !pNext->isVisible() && SgtcPanels_IsStockMenuId( pNext->GetMenuID() ) )
-			p->SetNextMenu( pNext->GetNextMenu() );
+			SgtcPanels_UnlinkNext( p );
 		else
 			p = pNext;
 	}
@@ -337,7 +360,7 @@ static void SgtcPanels_ShowMenu( CMenuPanel *pNewMenu, int iMenu )
 			if ( p->GetNextMenu()->GetMenuID() == SGTC_MENU_BRIEFING )
 			{
 				s_flSgtcBriefingDismissedAt = gEngfuncs.GetClientTime();
-				p->SetNextMenu( p->GetNextMenu()->GetNextMenu() );
+				SgtcPanels_UnlinkNext( p );
 				bUnlinked = true;
 			}
 			else
@@ -348,6 +371,27 @@ static void SgtcPanels_ShowMenu( CMenuPanel *pNewMenu, int iMenu )
 		if ( bUnlinked )
 			gEngfuncs.Con_DPrintf( "[sgtc] ShowMenu %d unlinked queued briefing\n", iMenu );
 	}
+
+	// A panel object already queued under another id would be chained to itself
+	// below. Drop that request, like the same-id dedup above. The hop cap keeps a
+	// chain damaged by an earlier build from hanging the walk.
+	{
+		CMenuPanel *pQueued = gViewPort->m_pCurrentMenu;
+		for ( int i = 0; pQueued && i < 32; i++, pQueued = pQueued->GetNextMenu() )
+		{
+			if ( pQueued == pNewMenu )
+			{
+				gEngfuncs.Con_DPrintf( "[sgtc] ShowMenu %d dedup (panel already queued as %d)\n",
+					iMenu, pQueued->GetMenuID() );
+				return;
+			}
+		}
+	}
+
+	// This panel is about to become the chain's tail. A reused panel still holds
+	// the tail it had when it was last closed; clear it so that stale link cannot
+	// bring old menus back or close a loop in the chain.
+	pNewMenu->ReplaceNextMenu( NULL );
 
 	pNewMenu->SetMenuID( iMenu );
 	pNewMenu->SetActive( true );
@@ -2876,13 +2920,13 @@ void SgtcPanels_HideAll( void )
 	{
 		while ( gViewPort->m_pCurrentMenu
 			&& SgtcPanels_IsOurPanel( gViewPort->m_pCurrentMenu ) )
-			gViewPort->m_pCurrentMenu = gViewPort->m_pCurrentMenu->GetNextMenu();
+			SgtcPanels_PopFront();
 
 		for ( CMenuPanel *p = gViewPort->m_pCurrentMenu; p && p->GetNextMenu(); )
 		{
 			CMenuPanel *pNext = p->GetNextMenu();
 			if ( SgtcPanels_IsOurPanel( pNext ) )
-				p->SetNextMenu( pNext->GetNextMenu() );
+				SgtcPanels_UnlinkNext( p );
 			else
 				p = pNext;
 		}
