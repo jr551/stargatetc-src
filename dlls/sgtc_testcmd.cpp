@@ -1800,7 +1800,10 @@ static void cmd_spawn( const char *classname, float flDist )
 	UTIL_MakeVectors( pPlayer->pev->v_angle );
 	Vector vecOrigin = pPlayer->pev->origin + gpGlobals->v_forward * flDist;
 	vecOrigin.z += 8.0f;
-	CBaseEntity *pEnt = CBaseEntity::Create( classname, vecOrigin, pPlayer->pev->v_angle, NULL );
+	// The entity keeps its classname as a pointer, not a copy, and argv is a transient buffer: a
+	// spawned monster lost its classname on the next tick and dropped out of the monsters and
+	// entity lookups while it was alive. Take the name from the engine's string pool.
+	CBaseEntity *pEnt = CBaseEntity::Create( STRING( ALLOC_STRING( classname ) ), vecOrigin, pPlayer->pev->v_angle, NULL );
 	if( !pEnt )
 	{
 		test_out( "SGTCTEST {\"cmd\":\"spawn\",\"class\":\"%s\",\"error\":\"create failed\"}", classname );
@@ -1861,7 +1864,8 @@ static void cmd_spawnat( const char *classname, const char *x, const char *y, co
 {
 	if( !classname || !*classname ) { test_out( "SGTCTEST {\"cmd\":\"spawnat\",\"error\":\"missing classname\"}" ); return; }
 	Vector vecOrigin( (float)atof( x ? x : "0" ), (float)atof( y ? y : "0" ), (float)atof( z ? z : "0" ) );
-	CBaseEntity *pEnt = CBaseEntity::Create( classname, vecOrigin, Vector( 0, 0, 0 ), NULL );
+	// Same as cmd_spawn: the name must outlive argv (a spawned monster lost its classname on the next tick).
+	CBaseEntity *pEnt = CBaseEntity::Create( STRING( ALLOC_STRING( classname ) ), vecOrigin, Vector( 0, 0, 0 ), NULL );
 	if( !pEnt ) { test_out( "SGTCTEST {\"cmd\":\"spawnat\",\"class\":\"%s\",\"error\":\"create failed\"}", classname ); return; }
 	Vector vecModel = pEnt->pev->size;
 	test_out( "SGTCTEST {\"cmd\":\"spawnat\",\"class\":\"%s\",\"origin\":[%.1f,%.1f,%.1f],\"size\":[%.1f,%.1f,%.1f],\"scale\":%.2f,\"body\":%d,\"skin\":%d,\"sequence\":%d}",
