@@ -49,6 +49,7 @@ void CFlashBang::Precache( void )
 	PRECACHE_MODEL( "models/p_grenade.mdl" );
 	PRECACHE_SOUND( "common/null.wav" );
 	SGTC_PrecacheSound( "weapons/flashbang.wav" );
+	PRECACHE_SOUND( "weapons/dbarrel1.wav" );	// stand-in for flashbang.wav until it ships
 	SGTC_ThrowFxPrecache();
 }
 

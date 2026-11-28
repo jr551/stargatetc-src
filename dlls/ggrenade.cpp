@@ -530,6 +530,14 @@ void CGrenade::FlashThink( void )
 	{
 		CSoundEnt::InsertSound( bits_SOUND_COMBAT, pev->origin, 400, 0.5f );
 
+		// The flashbang's detonation had no sound: weapons/flashbang.wav is precached but not in
+		// the payload yet. A sharp existing bang stands in until it ships; the real file takes
+		// over as soon as it is there. The Goa'uld device shares this think and keeps its own.
+		if( !FStrEq( STRING( pev->model ), "models/w_gacgoa.mdl" ) )
+			EMIT_SOUND_DYN( ENT( pev ), CHAN_WEAPON,
+				SGTC_SoundFileExists( "weapons/flashbang.wav" ) ? "weapons/flashbang.wav" : "weapons/dbarrel1.wav",
+				1.0f, ATTN_NORM, 0, 108 );
+
 		CBaseEntity *pEnt = CBaseEntity::Create( "info_flash", pev->origin, pev->angles, NULL );
 		if( pEnt )
 		{

@@ -87,3 +87,13 @@ console, and `sgtc_test_enable 1` turns on the developer JSON lines (`SGTC_PACKA
 
 Do not use `pkill -f xash3d`: it kills other sessions' engines. Stop a run by its pid or let
 the timeout end it.
+
+## Sound tour
+
+`scenarios/sound_tour.cfg` is for a person with speakers: it goes through the weapon sounds added in
+the weapon effects pass, one STEP line per sound in the console (MP5, M16, P90, PSG1 and zatarc
+clicks, the gas pin pull, the throw whoosh, the Goa'uld grenade charge, the USAS reload, the shield
+cue, the Reetou shot, the coujaf swing). Copy it to `stargatetc/sound_tour.cfg` and run
+`exec sound_tour` from the console in a single-player game; it takes about two minutes. On the
+null-sink recording (`docs/weapon-effects-review.md`, "Sound, measured") every step's wav is in
+the output, so a person only has to judge whether each one sounds right.

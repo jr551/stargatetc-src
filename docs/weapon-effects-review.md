@@ -34,9 +34,9 @@ These are referenced by the code but are in neither the repo nor the test game f
 |---|---|---|
 | `models/v_shield.mdl`, `models/p_shield.mdl`, `models/w_shield.mdl` | `weapon_shield` (`dlls/sgtc_wpn_shield.cpp`, client table `cl_dll/sgtc_weapons_client.cpp:49`) | The shield gun has no viewmodel or worldmodel. Its raise sound and glow still play. |
 | `sprites/zatwave.spr` | `weapon_zat` (`dlls/sgtc_wpn_zat.cpp:96`, beam TEs at `:267`; projectile `dlls/sgtc_misc.cpp:73`) | The zat wave sprite is not drawn. |
-| `sound/weapons/nightstrike.wav` | `weapon_coujaf` (`dlls/sgtc_wpn_coujaf.cpp:152`, `:294`) | The coujaf night-strike sound is silent. |
-| `sound/weapons/flashbang.wav` | `weapon_flashbang` (`dlls/sgtc_wpn_flashbang.cpp:51`) | Precached but absent. The detonation sound is `common/null.wav` (`:88`), so the flashbang is silent at detonation. |
-| `sound/weapons/timer.wav` | HUD (`cl_dll/status_icons.cpp:148`) | The HUD timer beep is silent. |
+| `sound/weapons/nightstrike.wav` | `weapon_coujaf` (`dlls/sgtc_wpn_coujaf.cpp:152`, `:294`) | Never played, so no stand-in: the night strike needs `m_iSwing == 1`, and nothing in the port ever sets `m_iSwing` to 1 (it is only cleared, in `Swing` and `WeaponIdle`), so the branch and its sound cannot run. A stand-in was added in `beb352e` and removed again once that showed; the latch mode (shield large plus the `hurtinvert` toggle) is a feature gap, not a missing sound. |
+| `sound/weapons/flashbang.wav` | `weapon_flashbang` (`dlls/sgtc_wpn_flashbang.cpp:51`) | Precached but absent, and nothing played it, so the flashbang was silent at detonation (the `common/null.wav` at `:88` is the holster cut, not the detonation). The flash think now plays the real file when it exists and `weapons/dbarrel1.wav` (pitch 108) until then; measured in the audio output at the detonation, match 1.00 against none before. The Goa'uld device shares the think and is left as it was. |
+| `sound/weapons/timer.wav` | HUD (`cl_dll/status_icons.cpp:148`) | Never played, so no stand-in: the stock status-icon hack plays it when a StatusIcon named `grenade...` is enabled, and the server registers no StatusIcon message. |
 
 Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and other non-weapon sounds are stock content and outside this review.
 
@@ -58,7 +58,7 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_zatarc` (CZatarc) | `zatarc.sc` ×1 | Normal on the r20 build; the impact flare still shows | Zoom; no event by design | Not checked | The zoom steps now play a click (`ace710a`). The tint was the full-alpha `Muz1` sprite at close hits (bisected). Now drawn only for hits beyond 300 units (`ff34e5c`). Before `zatarc.png` (r16), after `zatarc-fix.png` (r20) |
 | `weapon_tacgun` (CTacgun) | `tac.sc` ×1, ×2 in the dot run | A red beam from the device to the rock on the shot, visible in the first frame: a thin streak at 1 unit (`tacafter-0`) and a clear band at 3 units, the change in `6ba79dd` (`tacwide-0`). The beam lasts 0.1 s, so frame 3 is past it. The red dot in earlier frames is the HUD crosshair; the dot itself is not clearly visible | HUD info cycle and `tacact.wav`; no event by design | Held; HUD change not confirmed | |
 | `weapon_main` (CMainDieu, Energie) | `main.sc` ×1, `mains.sc` ×1 (stop) | Held; beam streak visible from the device | `main2.sc` ×1 | Hand only; no beam in frame | Live beam from an earlier commit (29e11d8) |
-| `weapon_glstaff` (CBigLanceJaffa) | `biglance.sc` ×1 | Washed white and pink on r16 and r17 from the bolt's light. Normal on r19 (frame checked) | None | — | Light removed in `aa3e9da`; glow sprite kept. Before `glstaff.png` (r16), after `glstaff-nodl-0.png` (r19) |
+| `weapon_glstaff` (CBigLanceJaffa) | `biglance.sc` ×1 | Washed white and pink on r16 and r17 from the bolt's light. Normal on r19 (frame checked) | None | — | Light removed in `aa3e9da`; glow sprite kept. Before `glstaff.png` (r16), after `glstaff-nodl-0.png` (r19); against the baseline build in god mode, `god-base-glstaff` and `god-fin-glstaff`. A frame with no scene at all is the dead view: the staff's blast can kill the team 0 harness player |
 | `weapon_lance` (CLanceJaffa) | `lance.sc` ×1 | Held; bolt trail visible | `lance2.sc` ×1 | Held; no bolt in frame | |
 | `weapon_larve` (CLarve) | `larve.sc` ×1 | Larve held | Detonate owned larves; no event by design | The detonation shows as a grey concussion fade on a player within 128 units (`larvevis-3`) | The blast itself has sound and damage only |
 | `weapon_invis` (CInvis) | `invis.sc` ×1 | Device held | Shield wall: no event by design; with `colormap9_1` it adds one entity and a whole-view yellow-green shield tint | Tint in `invisinfo-0` | Gate needs colormap bit 9 (test token `colormap9_1`, `e16e05c`) |
@@ -66,9 +66,9 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_batsup` (CBatonSupplice) | `batsup.sc` ×1; follow-up `batsup2.sc` ×1 with 36- and 40-frame gaps | Melee flare on the rock ahead | None | — | The follow-up needs the second swing 0.5–0.75 s after the first; 6, 25 and 50 frames miss it |
 | `weapon_coujaf` (CCoujaf) | `coujaf.sc` ×1 (swing and miss) | Blade mid-swing; no hit in frame | None | — | Miss now sends the event (commit 7323428). `nightstrike.wav` missing |
 | `weapon_couteau` (CCouteau) | `couteau.sc` ×1 and `throw.sc` ×1 (`i1=3`) | Knife held | `throw.sc` ×1 (`i1=3`) | Knife held; throw not in frame | |
-| `weapon_gacgoa` (CGrenadeChoc) | `throw.sc` ×1 (`i1=10`) | Device held; throw not in frame | `throw.sc` ×1 (`i1=10`) | Held | |
-| `weapon_flashbang` (CFlashBang) | `throw.sc` ×1 (`i1=0`) | Held; the detonation shows as a grey-white flash that fades (`flashvis-4`, `flashvis-5`) | None | — | `i1=0` is the flashbang's id by design. Detonation is the stock flash path (`CGrenade::ShootFlash`); `flashbang.wav` missing, so the detonation sound is silent |
-| `weapon_handgrenade` (CHandGrenade, stock) | `throw.sc` ×1 (`i1=12`) from the ammo watch | Grenade held | None | — | Stock class, not edited |
+| `weapon_gacgoa` (CGrenadeChoc) | `throw.sc` ×1 (`i1=10`) | Device held; throw not in frame. Thrown at the floor 150 units ahead with the camera looking down (`thr2-gacgoa`): the device flies, then the whole view whites out from about 2.4 s after the throw and is fully white at 3.5 s. It is the same `CGrenade::ShootFlash` path as the flashbang, and the two have the same time course: mean brightness 90 before, 255 from 5 to 7 s after release, still 255 at 17 s and back to normal at 19 s (`thr3-gacgoa`, `thr3-flash`). That is the worst case, looking at the device from close range | `throw.sc` ×1 (`i1=10`) | Held | The whiteout is about 12 s at full white, long next to the flashbang's grey-white fade in the earlier frames; it is the shared flash code, so a change belongs there, not here |
+| `weapon_flashbang` (CFlashBang) | `throw.sc` ×1 (`i1=0`) | Held; the detonation shows as a grey-white flash that fades (`flashvis-4`, `flashvis-5`) | None | — | `i1=0` is the flashbang's id by design. Detonation is the stock flash path (`CGrenade::ShootFlash`); `flashbang.wav` is missing, so a stand-in bang plays at the detonation (see the sound table) |
+| `weapon_handgrenade` (CHandGrenade, stock) | `throw.sc` ×1 (`i1=12`) from the ammo watch | Grenade held. Thrown at the floor (`thr2-hgrenade`): the grenade is in the air for about 2 s, then a bright flash with sparks, a fireball, a black smoke cloud and a scorch mark on the ground | None | — | Stock class, not edited; the detonation is the stock effect |
 | `weapon_c4` (CSgtcC4) | `throw.sc` ×1 (`i1=14`) | Two C4 units; a charge is on the ground ahead | Stock detonate; not run | — | Subclass of the stock satchel |
 | `weapon_mine` (CTripmine, stock) | None; stock `tripfire.sc` is not logged | Mine held; placement not captured | None | — | Stock class, not edited |
 | `weapon_mustardgrenade` | `throw.sc` ×1 (`i1=29`) on release | The cloud lands about 1,200 units ahead; before the change there was no mark there (`gasdbg-3`). After, a white burst is on the path (`gasburst-3`) | None | — | The cloud is now a radius-scaled sprite burst (`9228678`). It is small at range and fills more of the view up close; close-range frames not captured |
@@ -103,17 +103,22 @@ The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so the
 | P90 silencer toggle (`snd4`) | `weapons/357_cock1.wav` | 0.95 | +1.5 s |
 | PSG1 zoom, two steps (`snd5`) | `weapons/357_cock1.wav` | 0.95, 0.95 | +1.8 s and 1.6 s later |
 | Zatarc zoom, three steps (`sndzarc`) | `weapons/357_cock1.wav` | 0.95 each | +1.6 s, then every 1.6 s |
+| Flashbang detonation (`fbfin`, `fbbase`) | `weapons/dbarrel1.wav` stand-in, pitch 108 | 1.00 (0.21 before) | about 2.5 s after the throw |
 | Control: marker, no action | none of the above | none | none |
 
 A second `reetou.wav` match (0.98) comes 3.4 s after the shot, on the baseline build too: the viewmodel's `tir1a` sequence plays it again.
 
-The coujaf miss swing is audible now (a swing whoosh, peak rms 7308 in `allfin1`; silent in `allbase1`). Not measured: the coujaf `nightstrike.wav` (missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing).
+The coujaf miss swing is audible now (a swing whoosh, peak rms 7308 in `allfin1`; silent in `allbase1`). Levels in the output of the tour below (full scale is 32768): the clicks peak at 18,260, the pin pull at 21,800, the whooshes at 13,600 to 16,200, the reload at 21,600 and the shield cue at 25,300, against 24,700 for a USAS shot, so none clips and none is much quieter than a shot.
+
+A sound tour for a person with speakers is `tests/playtest/scenarios/sound_tour.cfg`: 14 steps, about two minutes, one console line naming each sound before it plays. Run through the null sink (`tour2`), every step's wav is in the output: 11 clicks across the five toggle steps, the pin pull and whoosh, the three throw whooshes, the full charge sound (0.88) with the whoosh on top, the reload, the shield cue, the Reetou shot, and the coujaf and couteau swings. Nobody has done the listening yet; the tour is how.
+
+Not applicable: the coujaf night strike (unreachable, see the assets table) and the HUD timer (never played).
 
 ## Final sweep on the merged tree
 
-43 single-player GUI runs on `70f94f8` (tags `fin-*`, `-nosound`): the 31 primaries and 12 secondaries. All exited 0 and no log shows a signal. The primaries without a receipt are the ones the table already lists: the medic (no target in single player), the mine and the MP5 (stock events are not logged). The secondaries without a receipt are by design: the M16, PSG1 and zatarc zoom, the MP5 click, the invis wall, the P90 silencer and the Tac HUD cycle. `reetou2.sc`, `lance2.sc`, `main2.sc`, the gacgoa throw and the medic self heal each logged one receipt. The primary frames (contact sheet `sheet-fin-primary.png` in the scratch folder) show no whole-view wash: glstaff and zatarc are normal and the shield shows its gold glow. The Torri hand grenade viewmodel crash that the playtest session found (`v_grenadeT.mdl`, fixed on its branch) is not reachable from these runs, because the single-player player is on team 0.
+43 single-player GUI runs on the final head `64b3da8` (tags `fin2-*`, `-nosound`; the same runs on `70f94f8` earlier, tags `fin-*`, gave the same receipts): the 31 primaries and 12 secondaries. All exited 0 and no log shows a signal. The primaries without a receipt are the ones the table already lists: the medic (no target in single player), the mine and the MP5 (stock events are not logged). The secondaries without a receipt are by design: the M16, PSG1 and zatarc zoom, the MP5 click, the invis wall, the P90 silencer and the Tac HUD cycle. `reetou2.sc`, `lance2.sc`, `main2.sc`, the gacgoa throw and the medic self heal each logged one receipt. The primary frames (contact sheet `sheet-fin2-primary.png` in the scratch folder) show no whole-view wash: zatarc is normal and the shield shows its gold glow. The glstaff frame depends on whether the harness player survives the staff's own blast: it is the dead view (flat grey) when the player dies, as in the baseline, and the wash fix is shown with `god` in the before and after table below. The Torri hand grenade viewmodel crash that the playtest session found (`v_grenadeT.mdl`, fixed on its branch) is not reachable from these runs, because the single-player player is on team 0.
 
-The dedicated-server `wepfireall` sweep was re-run on the build of `ac46c1d` (after the teammate trace and toggle-click changes): 38 classes registered, 31 given, 31 primaries and 11 secondaries fired, 0 self-kills, exit 0.
+The dedicated-server `wepfireall` sweep on the same head (`dedi-final5`): 38 classes registered, 31 given, 31 primaries and 11 secondaries fired, 0 self-kills, exit 0.
 
 ## Before and after, every weapon
 
@@ -127,7 +132,7 @@ The baseline is the commit before the weapon work (`1e15751`), built clean, plus
 | m92s | 0.96 | The shot warms the rock and lights the viewmodel (muzzle light) | Same |
 | flashbang | 1.00 | Same (the flash is the detonation) | Throw whoosh added (silent, then audible) |
 | gacgoa | 1.00 | Same | Whoosh added; the charge sound is intact after `1d826a6` |
-| glstaff | 0.37 | **Before: the whole view is flat grey with only the HUD. After: normal** | Same |
+| glstaff | 0.37 | **In god mode, so the player survives: before, the whole scene is blown out white, pink and orange; after, a normal scene** (`god-base-glstaff`, `god-fin-glstaff`). Without god mode the staff's own blast kills the single-player harness player (team 0), and the frame is then the dead view, flat grey with only the HUD, in both builds (`base-glstaff`, `fin2-glstaff`; health is negative in the log). It is not a rendering fault, and the older `fin-glstaff` was a normal frame only because that run survived with 24 health | Same |
 | goaregen | 0.95 | **Before: nothing. After: a green puff in front of the view** | Same |
 | handgrenade | 0.53 | Animation timing differs; the thrown grenade is in the air after | Throw whoosh added (swing match 1.00, none before) |
 | invis | 0.99 | Same | Same |
@@ -177,7 +182,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 ## Decisions and open items
 
 1. **MP5 secondary.** Approved: the stock edit is `4596d74`. The reference secondary is a cooldown-only stub, so it gets the dry-fire click only, with no projectile and no ammo.
-2. **Missing assets** (table above). Decided: wait for the asset set. The shield viewmodel and worldmodel, the zat wave sprite, and the coujaf, flashbang and HUD timer sounds stay blocked until then.
+2. **Missing assets** (table above). Decided first: wait for the asset set. Then, on 2026-11-28, the user chose sound stand-ins: the flashbang detonation now plays an existing sample while the real file is absent, and the real file takes over when it ships. The coujaf night strike and the HUD timer sound are never played in this port (the night strike needs a swing state nothing sets, the timer needs a status icon the server never sends), so neither has a stand-in. The shield models and the zat wave sprite stay blocked until the asset set arrives.
 3. **Zatarc whole-view tint.** Fixed on r20 (see the table). The source was the full-alpha `Muz1` sprite at close hits.
 4. **Flashbang detonation.** Confirmed. The flashbang leaves the entity list about 3.4 s after the throw, and the view goes grey-white and fades (`flashvis-4`, `flashvis-5`).
 5. **Gas cloud.** Now visible at range as a radius-scaled sprite burst (`9228678`). Detonation at t=16.89, the cloud 1,212 units from the thrower, with the before and after frames as above. The earlier beam strip, 16 units tall and about 42 wide, was a few pixels at that range. Close-range frames are not captured.
@@ -186,7 +191,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 8. **Larve detonation.** The blast itself has sound and damage only. The visible effect is the concussion fade: the view goes grey for several frames when the blast hits a player within 128 units (`larvevis-3`). In the harness the player is on team 0, so the larve's enemy search does not exclude its owner; with teams that check applies.
 9. **P90 silencer toggle, M16 scope and PSG1 zoom** were silent. All three now play the dry-fire click (`ca3e921`), measured in the audio output. The zatarc zoom steps were silent too and now click as well (`ace710a`).
 10. **Heal and poison on a target.** Captured in the multiplayer runs (see the medic and goaregen rows). Earlier attempts used `jointeam`, `menuselect` and key presses and stayed an observer; `autopick` after the briefing step spawns the local player as a class, and the pending team and class are applied on the next dead tick.
-11. **Sound.** Measured on a PipeWire null sink (section above): the MP5 click, the gas pin pull, the Reetou shot, the USAS reload, the shield raise cue and the throw whoosh are in the audio output. Nobody has listened to them. Whether they sound right, and at what volume, is still a human check.
+11. **Sound.** Measured on a PipeWire null sink (section above): the MP5 click, the gas pin pull, the Reetou shot, the USAS reload, the shield raise cue and the throw whoosh are in the audio output. Nobody has listened to them. Whether they sound right, and at what volume, is still a human check; `tests/playtest/scenarios/sound_tour.cfg` plays them all in order for that.
 
 ## Commits on this branch since `716dc00`
 
@@ -211,3 +216,5 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `1d826a6` Play the throw whoosh on its own channel so it stops cutting the charge sound
 - `25f8500` Draw a muzzle flash for the PSG1
 - `ace710a` Add a click to the zatarc zoom steps
+- `beb352e` Play stand-in sounds for the missing flashbang and coujaf night strike samples
+- `cf668f0` Remove the coujaf night strike stand-in: the branch cannot run
