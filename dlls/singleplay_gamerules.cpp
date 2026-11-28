@@ -37,6 +37,10 @@ CHalfLifeRules::CHalfLifeRules( void )
 {
 	SERVER_COMMAND( "exec spserver.cfg\n" );
 	RefreshSkillData();
+	// sv_clienttrace 1 made the Jaffa's line traces miss the single-player player in our
+	// test runs, so melee and sight checks saw clear air. Setting it to 0 let the same
+	// traces hit the player. The engine-side reason is not known.
+	CVAR_SET_FLOAT( "sv_clienttrace", 0 );
 }
 
 //=========================================================
