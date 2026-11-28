@@ -1400,7 +1400,10 @@ void EV_SGTC_Throw( struct event_args_s *args )
 	if( EV_IsLocal( idx ) )
 		V_PunchAxis( 0, -( 0.5f + flStrength ) );
 
-	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON,
+	// Not CHAN_WEAPON: a new sound on an entity's channel cuts the one playing there,
+	// and the Goa'uld grenade device holds its 2.8 s charge sound on CHAN_WEAPON. The
+	// whoosh on that channel stopped the charge sound at the throw.
+	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_AUTO,
 		sounds[gEngfuncs.pfnRandomLong( 0, 2 )],
 		0.5f + 0.3f * flStrength, 0.8f, 0, 98 + gEngfuncs.pfnRandomLong( 0, 7 ) );
 }
