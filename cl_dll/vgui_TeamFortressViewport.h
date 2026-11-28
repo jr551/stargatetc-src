@@ -1511,6 +1511,13 @@ public:
 			m_pNextMenu = pNextPanel;
 	}
 
+	// SetNextMenu appends at the tail of the chain, so it can never drop a node.
+	// This one replaces the link, which is what unlinking a queued panel needs.
+	void ReplaceNextMenu( CMenuPanel *pNextPanel )
+	{
+		m_pNextMenu = pNextPanel;
+	}
+
 	void SetMenuID( int iID )
 	{
 		m_iMenuID = iID;
