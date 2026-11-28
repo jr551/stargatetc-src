@@ -23,6 +23,7 @@
 #include "bot_name_sanitize.h"
 #include "bot_trace.h"
 #include "bot_radio.h"
+#include "bot_learn.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -36,6 +37,7 @@ extern int default_bot_skill;
 // It only ORs IN_ATTACK into v.button and issues weapon switches, so it must
 // run after combat has decided the frame and before the move is sent.
 extern void SGTC_Bots_ClassPlay(bot_t &pBot);
+extern int sgtc_bot_skill_spread_enabled;
 extern void SGTC_Bots_StaminaGate(bot_t &pBot);
 extern void SGTC_Bots_GateTimingFrame(bot_t &pBot);
 extern int bot_add_level_tag;
@@ -850,6 +852,26 @@ static void BotCreate_ProcessSkillAndColors(int &skill, int &top_color,
    {
       skill = default_bot_skill;
       got_skill_arg = FALSE;
+
+#ifdef JK_BOTTI_NATIVE
+      // SGTC: people differ. Spread the bots one level either side of the
+      // server's setting (a quarter a notch better, a quarter a notch worse)
+      // so a room of bots is not six copies of the same player.
+      if (sgtc_bot_skill_spread_enabled)
+      {
+         const int roll = RANDOM_LONG2(1, 100);
+
+         if (roll <= 25)
+            skill--;
+         else if (roll > 75)
+            skill++;
+
+         if (skill < 1)
+            skill = 1;
+         if (skill > 5)
+            skill = 5;
+      }
+#endif
    }
 
    if ((top_color < 0) || (top_color > 255))
@@ -1956,6 +1978,10 @@ static void BotWanderHandleStation(bot_t &pBot, qboolean &b_use_station, float f
 qboolean BotRoamStep(bot_t &pBot)
 {
    edict_t *pEdict = pBot.pEdict;
+
+#ifdef JK_BOTTI_NATIVE
+   BotLearn_NoteVisit(pBot);
+#endif
    const Vector base = pBot.b_roam_have_spawn ? pBot.v_roam_spawn : pEdict->v.origin;
    TraceResult tr;
    qboolean picked = FALSE;
@@ -1970,7 +1996,13 @@ qboolean BotRoamStep(bot_t &pBot)
        pBot.f_roam_target_time <= gpGlobals->time ||
        (pBot.v_roam_target - pEdict->v.origin).Length2D() < 64.0f)
    {
-      for (int attempt = 0; attempt < 8; attempt++)
+      // SGTC: of the candidates that pass, take the one in the least-walked
+      // part of the map (bot_learn.cpp), so a bot with no waypoint graph spreads
+      // out of its room instead of pacing about it.
+      float best_visits = 0.0f;
+      int valid = 0;
+
+      for (int attempt = 0; attempt < 8 && valid < 4; attempt++)
       {
          const float yaw = RANDOM_FLOAT2(0.0f, 360.0f);
          const float distance = RANDOM_FLOAT2(200.0f, 700.0f);
@@ -1991,11 +2023,28 @@ qboolean BotRoamStep(bot_t &pBot)
          if (tr.flFraction < 1.0f)
             continue;
 
+         valid++;
+
+#ifdef JK_BOTTI_NATIVE
+         const float visits = BotLearn_VisitWeight(spot);
+
+         if (!picked || visits < best_visits)
+         {
+            best_visits = visits;
+            pBot.v_roam_target = spot;
+            picked = TRUE;
+         }
+#else
          pBot.v_roam_target = spot;
-         pBot.b_roam_target_set = TRUE;
-         pBot.f_roam_target_time = gpGlobals->time + RANDOM_FLOAT2(6.0f, 12.0f);
          picked = TRUE;
          break;
+#endif
+      }
+
+      if (picked)
+      {
+         pBot.b_roam_target_set = TRUE;
+         pBot.f_roam_target_time = gpGlobals->time + RANDOM_FLOAT2(6.0f, 12.0f);
       }
 
       if (!picked)

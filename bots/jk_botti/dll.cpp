@@ -24,6 +24,7 @@
 #include "bot_func.h"
 #include "waypoint.h"
 #include "bot_skill.h"
+#include "bot_learn.h"
 #include "bot_weapons.h"
 #include "bot_sound.h"
 #include "player.h"
@@ -238,6 +239,9 @@ static void SpawnInitWorld(void)
    // do level initialization stuff here...
    WaypointInit();
    WaypointLoad(NULL);
+
+   // SGTC: what earlier play on this map taught the bots
+   BotLearn_LevelInit();
 
    // init sound system (Metamod plugin: static sSoundEnt in bot_sound.cpp)
 #ifndef JK_BOTTI_NATIVE
@@ -544,6 +548,9 @@ JK_BOTTI_LINKAGE void JK_Botti_ServerDeactivate(void)
       WaypointSaveFloydsMatrix();
       wp_matrix_save_on_mapend = FALSE;
    }
+
+   // SGTC: keep what the people showed the bots
+   BotLearn_Save();
 
    UTIL_FreeFuncBreakables();
 
@@ -886,6 +893,9 @@ JK_BOTTI_LINKAGE void JK_Botti_StartFrame( void )
    // Autowaypointing engine
    if (gpGlobals->time >= waypoint_time)
       StartFrameProcessAutowaypointing();
+
+   // SGTC: watch the people (heat map, skill matching); works once a second
+   BotLearn_Frame();
 
    if (need_to_open_cfg)  // have we open jk_botti.cfg file yet?
       StartFrameOpenConfigFile();

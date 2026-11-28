@@ -14,6 +14,7 @@
 #include "bot.h"
 #include "bot_func.h"
 #include "bot_weapons.h"
+#include "bot_learn.h"
 #include "waypoint.h"
 #include "bot_skill.h"
 #include "bot_weapons.h"
@@ -728,7 +729,15 @@ static void BotFindWaypointGoal( bot_t &pBot )
    }
 
    // we couldn't find ANYTHING, go somewhere random
-   index = WaypointFindRandomGoal(pBot.pEdict, 0);
+   //
+   // SGTC: unless people have shown where the traffic is, in which case head
+   // there (bot_learn.cpp); the learned pick says -1 when it has no opinion.
+   index = -1;
+#ifdef JK_BOTTI_NATIVE
+   index = BotLearn_PickGoal(pBot);
+#endif
+   if (index == -1)
+      index = WaypointFindRandomGoal(pBot.pEdict, 0);
 
    if (index != -1)
    {

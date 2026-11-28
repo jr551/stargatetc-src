@@ -27,6 +27,8 @@ set(JK_BOTTI_CPP
 	${JK_BOTTI_ROOT}/bot_trace.cpp
 	${JK_BOTTI_ROOT}/bot_config_init.cpp
 	${JK_BOTTI_ROOT}/bot_models.cpp
+	${JK_BOTTI_ROOT}/bot_learn.cpp
+	${JK_BOTTI_ROOT}/bot_learn_core.cpp
 	${JK_BOTTI_ROOT}/bot_navigate.cpp
 	${JK_BOTTI_ROOT}/bot_persona.cpp
 	${JK_BOTTI_ROOT}/bot_query_hook.cpp
