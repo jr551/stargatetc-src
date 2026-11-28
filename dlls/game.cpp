@@ -326,6 +326,8 @@ void GameDLLInit( void )
 	SGTC_PackAutoInit();
 	extern void SGTC_DiagInit( void );
 	SGTC_DiagInit();
+	extern void SGTC_CompatCvarsInit( void );
+	SGTC_CompatCvarsInit();
 	extern void SGTC_ReaDebugInit( void );
 	SGTC_ReaDebugInit();
 

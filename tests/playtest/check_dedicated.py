@@ -8,6 +8,8 @@ Usage:
     check_dedicated.py botkill  <log>               botkill (scenarios/botkill.cfg)
     check_dedicated.py stamina  <log>               GUI log of gui_scenarios.py stamina: regen must run
     check_dedicated.py flash    <log>               flashtest (scenarios/flash.cfg): no info_flash removed at spawn
+    check_dedicated.py flashair <log>               GUI log of gui_scenarios.py flash: the flash survives its spawn
+    check_dedicated.py quiet    <log> [<log> ...]   dedicated logs: no unknown-command, late-precache or missing-cvar warnings
     check_dedicated.py sp       <log> [<expected replaced>]   run_sp.sh log: activates, no missing jaffa.mdl
 
 Each check prints one PASS/FAIL line per rule and exits 1 when any rule fails. Colour codes in
@@ -25,11 +27,15 @@ def read(path):
 
 
 def events(text, tag="SGTCEVENT"):
-    for m in re.finditer(tag + r" (\{.*\})", text):
+    # A GUI log can carry two copies of a line back to back ("...}SGTCTEST {..."), and a flat
+    # greedy match would then read both as one object. raw_decode takes the first JSON value only.
+    decoder = json.JSONDecoder()
+    for m in re.finditer(re.escape(tag) + r" (?=\{)", text):
         try:
-            yield json.loads(m.group(1))
+            obj, _ = decoder.raw_decode(text, m.end())
         except ValueError:
-            pass
+            continue
+        yield obj
 
 
 class Report:
@@ -100,11 +106,29 @@ def check_flash(rep, path, text):
         rep.rule(rows[-1]["removed"] == 0, "flash: no info_flash removed at spawn (removed %d of 3)" % rows[-1]["removed"])
 
 
+def check_flashair(rep, path, text):
+    rows = [e for e in events(text, "SGTCTEST") if e.get("cmd") == "flashair"]
+    rep.rule(bool(rows) and "error" not in rows[-1], "flashair: the host was lifted into open air and a flash spawned")
+    if rows and "error" not in rows[-1]:
+        rep.rule(rows[-1].get("killme") == 0, "flashair: the flash survived its spawn (killme %s)" % rows[-1].get("killme"))
+
+
+def check_quiet(rep, path, text):
+    for needle, what in (("Unknown command", "unknown-command warnings"), ("late precache", "late precache warnings"),
+                         ("fell out of level", "items that fell out of the level"),
+                         ("Cvar_Set: variable", "sets of cvars the engine does not have")):
+        rep.rule(needle not in text, "%s: no %s" % (path, what))
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
     mode, paths = sys.argv[1], sys.argv[2:]
     rep = Report()
+    if mode == "quiet":
+        for path in paths:
+            check_quiet(rep, path, read(path))
+        return 1 if rep.failed else 0
     if mode == "sp":
         check_clean(rep, paths[0], read(paths[0]))
         check_sp(rep, paths[0], read(paths[0]), int(paths[1]) if len(paths) > 1 else None)
@@ -116,7 +140,8 @@ def main():
             continue
         check_clean(rep, path, text)
         {"wepfire": check_wepfire, "grenades": check_grenades, "botkill": check_botkill,
-         "stamina": check_stamina, "flash": check_flash}[mode](rep, path, text)
+         "stamina": check_stamina, "flash": check_flash,
+         "flashair": check_flashair}[mode](rep, path, text)
     return 1 if rep.failed else 0
 
 

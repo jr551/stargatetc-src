@@ -151,6 +151,7 @@ set (SVDLL_SOURCES
 	sgtc_cvar.cpp
 	sgtc_itemguard.cpp
 	sgtc_diag.cpp
+	sgtc_compat_cvars.cpp
 	sgtc_diagfx.cpp
 	sgtc_skill_stubs.cpp
 	sgtc_pack_auto.cpp
