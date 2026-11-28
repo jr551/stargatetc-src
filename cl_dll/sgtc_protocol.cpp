@@ -686,6 +686,16 @@ void EV_SGTC_PSG1( struct event_args_s *args )
 		V_PunchAxis( 0, -4.5f );	// strongest kick in the arsenal (was -2.0)
 		V_PunchAxis( 2, gEngfuncs.pfnRandomFloat( -0.8f, 0.8f ) );	// roll
 		SGTC_Aim_OnLocalFire();
+
+		// v_psg1.mdl has no muzzle flash event, so the shot showed only the light.
+		// Draw the flash the M16, P90 and USAS models trigger (type 20) at the barrel
+		// attachment, except behind the scope, where the barrel is out of view.
+		if( gHUD.m_iFOV >= 70 )
+		{
+			cl_entity_t *pView = gEngfuncs.GetViewModel();
+			if( pView )
+				gEngfuncs.pEfxAPI->R_MuzzleFlash( pView->attachment[0], 20 );
+		}
 	}
 
 	EV_GetDefaultShellInfo( args, origin, velocity, ShellVelocity, ShellOrigin,
