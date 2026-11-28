@@ -411,6 +411,11 @@ LINK_ENTITY_TO_CLASS( trigger_secret, CTriggerRandom );
 // ===========================================================================
 void CItemObjective::Spawn( void )
 {
+	if( SGTC_KeyObjectivesOff() )
+	{
+		UTIL_Remove( this );	// deathmatch has no key
+		return;
+	}
 	Precache();
 	SET_MODEL( ENT( pev ), "models/key.mdl" );
 	pev->team = 2;	// ref CItemSecurity::Spawn @0xfd68d pev+0x1ac

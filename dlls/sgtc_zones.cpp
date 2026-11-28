@@ -292,6 +292,11 @@ public:
 
 void CTriggerBomb::Spawn( void )
 {
+	if( SGTC_KeyObjectivesOff() )
+	{
+		UTIL_Remove( this );	// deathmatch has no bomb zone (zone_bomb_target)
+		return;
+	}
 	// ref @0x1aa36a: InitTrigger + touch+think hooks; +0x134 = 0xc5 marker.
 	SGTC_InitTrigger( this );
 	SetTouch( &CTriggerBomb::BombZoneTouch );

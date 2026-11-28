@@ -61,6 +61,7 @@ void SGTC_LinkUserMessages_Prefix( void );
 void SGTC_LinkUserMessages_Suffix( void );
 int SGTC_ClampWireByte( int v );
 CStargateTeamDM *SGTC_GetTeamDMRules( void );
+BOOL SGTC_KeyObjectivesOff( void );	// TRUE on the deathmatch rules (sg_, sgi_): no key, bomb or nuke objective
 void SGTC_ResetPlayerOnConnect( CBasePlayer *pPlayer );
 void SGTC_ResetPlayerOnDisconnect( CBasePlayer *pPlayer );
 BOOL SGTC_SanitizeGondLoadout( CBasePlayer *pPlayer );	// buy-menu selection check (#34): allow-list, caps, budget; FALSE = not checked, grant nothing from it
