@@ -22,6 +22,8 @@ Branch `goal/weapon-effects-feel`, on top of `716dc00`. Scope: every weapon clas
 
 - **Teammates could not be healed (`ffdb3a9`).** Team no-collide (`SGTC_ShouldCollide`, `sgtc_team_nocollide 1` by default) also applies to traces. The medic and the regen weapon find their target with a trace, so a teammate was never hit and the heal branch could not run. A debug trace showed the ray passing the teammate 100 units ahead and ending at the world 1,220 units away; with `sgtc_team_nocollide 0` the same shot healed. A counter now makes `SGTC_ShouldCollide` answer 1 during these two traces only; movement collision is unchanged.
 - **Target puffs were inside the target (`adb4bed`).** The server sends the target's origin, the middle of its body, so the puffs were mostly hidden, and a poison puff (a 32x48 sprite at scale 0.2) was a few pixels. They now sit 22 units toward the shooter at chest height, are scaled for the sprite, and grow with distance up to 3x.
+- **The Reetou shot played twice for the shooter (`1f8888a`).** `v_reetou.mdl` already plays `weapons/reetou.wav` from its `tir1` and `tir1a` sequences (event 5004), so the primary was never silent for the shooter, and the client handler added in `6939f4f` played the same wav again. On the null-sink recording the shot was 1.5 times louder than on the build before the weapon work (rms 12958 against 8754) and clipped at full scale. The handler now plays it only for other players, who have no viewmodel event; the shooter's shot measures 0.93 and rms 8754, the same as before. Found by comparing against a baseline build (below).
+- **The throw whoosh cut the Goa'uld grenade charge sound (`1d826a6`).** A new sound on an entity's channel cuts the one playing there. The device holds `weapons/gacencl.wav` (2.8 s) on `CHAN_WEAPON`, and the whoosh from `d942e81` used the same channel, so the charge sound stopped at the throw: it lasted 4 s on the baseline build and 2 s here, and matched its wav at 0.98 and 0.5. The whoosh now plays on `CHAN_AUTO`; the charge sound matches at 0.95 and lasts 4 s again, and the whoosh is still in the output.
 - **Client hang in the menu chain (`1b22090`).** Found while spawning a local player for these runs. `CMenuPanel::SetNextMenu` appends at the tail of the chain, so the three unlink sites never removed their node, and `SgtcPanels_ShowMenu` looped forever when a briefing sat behind the team/class panel and a loadout menu arrived. Without the change 3 of 3 autopick runs hung; with it 8 of 8 passed. This is not a weapon effect, but it blocked every multiplayer run with a player.
 
 ## Missing game assets
@@ -92,7 +94,7 @@ The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so the
 | MP5 secondary | `weapons/357_cock1.wav` | 0.98 | +1.7 s; the only match in the run |
 | Mustard gas pin pull | `weapons/gren_cock1.wav` | 0.92 | +1.6 s |
 | Mustard release | a `swing` whoosh | 0.56 | +2.3 s, mixed with the grenade's own sounds |
-| Reetou primary | `weapons/reetou.wav` | 0.77 (0.64 alone in `snd3`) | +1.5 s; one event, one play |
+| Reetou primary, shooter | `weapons/reetou.wav` | 0.93 (`snd6`) | +1.5 s. Same as before the weapon work: it comes from the viewmodel (see the corrections) |
 | USAS shot, then reload | `weapons/reload1.wav` | 0.98 | +3.7 s (the shot has no template here) |
 | Shield raise | `weapons/P90recharge.wav` | 0.98 | +1.6 s |
 | Flashbang throw | a `swing` whoosh | 0.47 | +2.2 s |
@@ -102,7 +104,7 @@ The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so the
 | PSG1 zoom, two steps (`snd5`) | `weapons/357_cock1.wav` | 0.95, 0.95 | +1.8 s and 1.6 s later |
 | Control: marker, no action | none of the above | none | none |
 
-A second `reetou.wav` match (0.98) came 3.4 s after the first in `snd2`. The single-shot run has only one, and only the Reetou event plays the file, so another shooter in that session most likely made it (the single-player map runs enemies). It was not chased.
+A second `reetou.wav` match (0.98) comes 3.4 s after the shot, on the baseline build too: the viewmodel's `tir1a` sequence plays it again.
 
 Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing).
 
@@ -111,6 +113,53 @@ Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashban
 43 single-player GUI runs on `70f94f8` (tags `fin-*`, `-nosound`): the 31 primaries and 12 secondaries. All exited 0 and no log shows a signal. The primaries without a receipt are the ones the table already lists: the medic (no target in single player), the mine and the MP5 (stock events are not logged). The secondaries without a receipt are by design: the M16, PSG1 and zatarc zoom, the MP5 click, the invis wall, the P90 silencer and the Tac HUD cycle. `reetou2.sc`, `lance2.sc`, `main2.sc`, the gacgoa throw and the medic self heal each logged one receipt. The primary frames (contact sheet `sheet-fin-primary.png` in the scratch folder) show no whole-view wash: glstaff and zatarc are normal and the shield shows its gold glow. The Torri hand grenade viewmodel crash that the playtest session found (`v_grenadeT.mdl`, fixed on its branch) is not reachable from these runs, because the single-player player is on team 0.
 
 The dedicated-server `wepfireall` sweep was re-run on the build of `ac46c1d` (after the teammate trace and toggle-click changes): 38 classes registered, 31 given, 31 primaries and 11 secondaries fired, 0 self-kills, exit 0.
+
+## Before and after, every weapon
+
+The baseline is the commit before the weapon work (`1e15751`), built clean, plus only the test-only stamina, ammo and hurt tokens (`754c2ec`) so both builds get the same refills. The same 43 single-player runs were repeated on it (tags `base-*`, frames in `one-shots/`), and the audio cases were recorded on it. "SSIM" compares the two frames at 640x400: 1.00 is identical, and a lower value means the frames differ, which animation timing alone also causes, so each pair was also looked at. The baseline client has no `sgtc_fxlog`, so there are no receipts for it.
+
+| Run | SSIM | Frame, before and after | Sound, before and after |
+|---|---|---|---|
+| batsup | 0.89 | Same flare | Same |
+| coujaf | 1.00 | Same | The miss swing was silent; now a swing plays (`allbase1`, `allfin1`: silent, then peak rms 7308) |
+| couteau | 1.00 | Same | Same |
+| m92s | 0.96 | The shot warms the rock and lights the viewmodel (muzzle light) | Same |
+| flashbang | 1.00 | Same (the flash is the detonation) | Throw whoosh added (silent, then audible) |
+| gacgoa | 1.00 | Same | Whoosh added; the charge sound is intact after `1d826a6` |
+| glstaff | 0.37 | **Before: the whole view is flat grey with only the HUD. After: normal** | Same |
+| goaregen | 0.95 | **Before: nothing. After: a green puff in front of the view** | Same |
+| handgrenade | 0.53 | Animation timing differs; the thrown grenade is in the air after | Throw whoosh added (swing match 1.00, none before) |
+| invis | 0.99 | Same | Same |
+| lance | 0.36 | Same composition | Same |
+| larve | 1.00 | Same | Same |
+| m16 | 0.47 | Viewmodel lit by the muzzle light | Same |
+| main | 0.98 | Same | Same |
+| medic | 0.77 | Same: no target in single player | Same |
+| mine | 1.00 | Same | Same |
+| mp5 | 0.67 | Viewmodel lit by the muzzle light | Same |
+| mustardgrenade | 1.00 | Same at this timing; the cloud lands later (gas rows above) | Pin pull (`gren_cock1.wav`, 0.12 before, 0.92 after) and whoosh added |
+| narcogrenade | 0.28 | The baseline camera sits at a different yaw; no effect in either | As mustard |
+| nervegrenade, smokegrenade | 1.00 | Same | As mustard |
+| p90 | 0.28 | The baseline camera sits at a different yaw | Same |
+| psg1 | 0.55 | Viewmodel lit by the muzzle light | Same |
+| reetou | 0.40 | Same pose | The shooter hears the same shot (0.93 both); other players now hear it too |
+| shield | 0.93 | **Before: only the team tint. After: a gold glow column** | Raise cue added (`P90recharge.wav`, 0.07 before, 0.98 after) |
+| spas | 0.99 | Viewmodel lit by the muzzle light | Same |
+| tacgun | 0.99 | **Before: no beam. After: a red beam to the ground** | Same |
+| usas | 0.98 | Muzzle flash and a lit viewmodel | Reload sound added (`reload1.wav`, 0.13 before, 0.98 after) |
+| zatarc | 0.88 | **Before: no arc. After: a lightning arc (and a blue cast on the hand)** | Same |
+| zat | 0.96 | **Before: no beam. After: a lightning beam** | Same |
+| c4 | 1.00 | Same | Throw whoosh added |
+| lance, main, reetou, gacgoa secondaries | 0.96, 0.43, 1.00, 1.00 | Same | Same (the gacgoa secondary also adds the throw whoosh) |
+| p90 secondary | 1.00 | Same | Silencer click added (0.25 before, 0.95 after) |
+| m16 secondary | 1.00 | Same | Scope click added (0.25 before, 0.95 after) |
+| psg1 secondary | 0.88 | Same | Zoom click added (0.25 before, 0.95 after) |
+| mp5 secondary | 0.96 | Same | Dry-fire click added (0.26 before, 0.98 after) |
+| zatarc secondary | 0.70 | Zoom ring; the hand is tinted as in the primary | Same |
+| medic secondary | 0.63 | **Before: nothing. After: a green self-heal puff** | Same |
+| invis, tacgun secondaries | 1.00, 1.00 | Same | Same |
+
+Heal, poison and regen on a target have no single-player frame; their before and after are the multiplayer frames in the medic and goaregen rows (`mp-medic4-1` against `mp-medic10-1` for poison, and the teammate heal that never applied before).
 
 ## Stock-based classes (no stock file edited)
 
