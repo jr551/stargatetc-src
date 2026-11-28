@@ -295,7 +295,7 @@ static void SgtcPanels_ShowMenu( CMenuPanel *pNewMenu, int iMenu )
 	// Reset, no re-install (ref chain dedup + dismissal, see above).
 	if ( !SgtcPanels_ShouldShow( iMenu ) )
 	{
-		gEngfuncs.Con_Printf( "[sgtc] ShowMenu %d dedup (dismissed=%d)\n",
+		gEngfuncs.Con_DPrintf( "[sgtc] ShowMenu %d dedup (dismissed=%d)\n",
 			iMenu, s_iSgtcDismissedMenu );
 		return;
 	}
@@ -306,7 +306,7 @@ static void SgtcPanels_ShowMenu( CMenuPanel *pNewMenu, int iMenu )
 		// weapon panel is stale. Swallow this one install (the flag clears so a
 		// later legitimate open still works).
 		s_bLoadoutGranted = false;
-		gEngfuncs.Con_Printf( "[sgtc] ShowMenu %d swallowed (loadout already granted)\n", iMenu );
+		gEngfuncs.Con_DPrintf( "[sgtc] ShowMenu %d swallowed (loadout already granted)\n", iMenu );
 		return;
 	}
 
@@ -328,7 +328,7 @@ static void SgtcPanels_ShowMenu( CMenuPanel *pNewMenu, int iMenu )
 			if ( gViewPort->m_pCurrentMenu->GetMenuID() != SGTC_MENU_BRIEFING )
 				break;
 			s_flSgtcBriefingDismissedAt = gEngfuncs.GetClientTime();
-			gEngfuncs.Con_Printf( "[sgtc] ShowMenu %d pops briefing (front)\n", iMenu );
+			gEngfuncs.Con_DPrintf( "[sgtc] ShowMenu %d pops briefing (front)\n", iMenu );
 			gViewPort->HideTopMenu();
 		}
 		bool bUnlinked = false;
@@ -346,7 +346,7 @@ static void SgtcPanels_ShowMenu( CMenuPanel *pNewMenu, int iMenu )
 			}
 		}
 		if ( bUnlinked )
-			gEngfuncs.Con_Printf( "[sgtc] ShowMenu %d unlinked queued briefing\n", iMenu );
+			gEngfuncs.Con_DPrintf( "[sgtc] ShowMenu %d unlinked queued briefing\n", iMenu );
 	}
 
 	pNewMenu->SetMenuID( iMenu );
@@ -369,7 +369,7 @@ static void SgtcPanels_ShowMenu( CMenuPanel *pNewMenu, int iMenu )
 	if ( gViewPort->m_pCurrentMenu && SgtcPanels_IsOurPanel( gViewPort->m_pCurrentMenu ) )
 		gViewPort->m_pCurrentMenu->requestFocus();
 
-	gEngfuncs.Con_Printf( "[sgtc] ShowMenu %d installed%s (front id %d)\n", iMenu,
+	gEngfuncs.Con_DPrintf( "[sgtc] ShowMenu %d installed%s (front id %d)\n", iMenu,
 		gViewPort->m_pCurrentMenu ? " behind" : " front",
 		gViewPort->m_pCurrentMenu ? gViewPort->m_pCurrentMenu->GetMenuID() : 0 );
 }
@@ -396,7 +396,7 @@ public:
 			s_flSgtcDismissedAt = gEngfuncs.GetClientTime();
 			if ( s_iSgtcDismissedMenu == SGTC_MENU_BRIEFING )
 				s_flSgtcBriefingDismissedAt = s_flSgtcDismissedAt;
-			gEngfuncs.Con_Printf( "[sgtc] DismissMenu id %d\n", s_iSgtcDismissedMenu );
+			gEngfuncs.Con_DPrintf( "[sgtc] DismissMenu id %d\n", s_iSgtcDismissedMenu );
 		}
 		if ( gViewPort )
 			gViewPort->HideTopMenu();
@@ -422,7 +422,7 @@ public:
 		{
 			s_iSgtcDismissedMenu = gViewPort->m_pCurrentMenu->GetMenuID();
 			s_flSgtcDismissedAt = gEngfuncs.GetClientTime();
-			gEngfuncs.Con_Printf( "[sgtc] JoinMark id %d\n", s_iSgtcDismissedMenu );
+			gEngfuncs.Con_DPrintf( "[sgtc] JoinMark id %d\n", s_iSgtcDismissedMenu );
 		}
 	}
 };
@@ -2960,6 +2960,20 @@ static void SgtcPanels_ApplyInputState( void )
 static bool s_bSgtcCursorReleased = false;
 static float s_flSgtcRawInputSaved = -1.0f;
 
+// _windowed_mouse is an older Xash cvar. Builds without it print "Cvar_Set: variable
+// '_windowed_mouse' not found" (and an unknown-command line for the console path) into
+// the on-screen notify area every time a menu opens or closes, so only touch it when
+// the engine has it.
+static void SgtcPanels_SetWindowedMouse( float flValue )
+{
+	if ( !gEngfuncs.pfnGetCvarPointer( "_windowed_mouse" ) )
+		return;
+	gEngfuncs.Cvar_SetValue( "_windowed_mouse", flValue );
+	char szCmd[40];
+	snprintf( szCmd, sizeof( szCmd ), "_windowed_mouse %.0f\n", flValue );
+	gEngfuncs.pfnClientCmd( szCmd );
+}
+
 static void SgtcPanels_SetMenuCursor( bool bMenuOpen )
 {
 	if ( bMenuOpen )
@@ -2982,14 +2996,12 @@ static void SgtcPanels_SetMenuCursor( bool bMenuOpen )
 		// Both paths on purpose: Cvar_SetValue updates the live engine cvar and
 		// the client command goes through Xash's normal set path (which also
 		// ungrabs SDL when the cvar has a callback).
-		gEngfuncs.Cvar_SetValue( "_windowed_mouse", 0.0f );
-		gEngfuncs.pfnClientCmd( "_windowed_mouse 0\n" );
+		SgtcPanels_SetWindowedMouse( 0.0f );
 		gEngfuncs.Cvar_SetValue( "m_rawinput", 0.0f );
 	}
 	else
 	{
-		gEngfuncs.Cvar_SetValue( "_windowed_mouse", 1.0f );
-		gEngfuncs.pfnClientCmd( "_windowed_mouse 1\n" );
+		SgtcPanels_SetWindowedMouse( 1.0f );
 		if ( s_flSgtcRawInputSaved >= 0.0f )
 			gEngfuncs.Cvar_SetValue( "m_rawinput", s_flSgtcRawInputSaved );
 		if ( s_bSgtcCursorReleased &&

@@ -11,6 +11,9 @@
 #include "cbase.h"
 #include "sgtc_diag.h"
 
+#include <stdarg.h>
+#include <stdio.h>
+
 cvar_t sgtc_diag_log = { "sgtc_diag_log", "0", FCVAR_SERVER };
 
 void SGTC_DiagInit( void )
@@ -30,6 +33,23 @@ static BOOL DiagOn( void )
 BOOL SGTC_DiagEnabled( void )
 {
 	return DiagOn();
+}
+
+void SGTC_DevLog( const char *pszFormat, ... )
+{
+	if( !DiagOn() )
+	{
+		cvar_t *pTest = CVAR_GET_POINTER( "sgtc_test_enable" );
+		if( !pTest || pTest->value <= 0.0f )
+			return;
+	}
+
+	char szLine[512];
+	va_list ap;
+	va_start( ap, pszFormat );
+	vsnprintf( szLine, sizeof( szLine ), pszFormat, ap );
+	va_end( ap );
+	ALERT( at_console, "%s", szLine );
 }
 
 static const char *EntName( CBaseEntity *pEntity )

@@ -17,6 +17,7 @@
 
 #include "extdll.h"
 #include "util.h"
+#include "sgtc_diag.h"
 #include "cbase.h"
 #include "player.h"
 #include "gamerules.h"
@@ -81,7 +82,7 @@ void SGTC_PackAuto_Start( CBasePlayer *pPlayer )
 		return;
 
 	pPlayer->m_flSgtcPackDeadline = gpGlobals->time + PackAutoDelay();
-	ALERT( at_console, "SGTC_PACKAUTO {\"cmd\":\"arm\",\"player\":\"%s\",\"team\":%d,\"class\":%d,\"deadline\":%.3f}\n",
+	SGTC_DevLog( "SGTC_PACKAUTO {\"cmd\":\"arm\",\"player\":\"%s\",\"team\":%d,\"class\":%d,\"deadline\":%.3f}\n",
 		STRING( pPlayer->pev->netname ), iTeam, iClass, pPlayer->m_flSgtcPackDeadline );
 }
 
@@ -91,7 +92,7 @@ void SGTC_PackAuto_Cancel( CBasePlayer *pPlayer )
 		return;
 	if( pPlayer->m_flSgtcPackDeadline > 0.0f )
 	{
-		ALERT( at_console, "SGTC_PACKAUTO {\"cmd\":\"cancel\",\"player\":\"%s\"}\n",
+		SGTC_DevLog( "SGTC_PACKAUTO {\"cmd\":\"cancel\",\"player\":\"%s\"}\n",
 			STRING( pPlayer->pev->netname ) );
 	}
 	pPlayer->m_flSgtcPackDeadline = 0.0f;
@@ -166,7 +167,7 @@ void SGTC_PackAuto_Tick( void )
 		// cancelled the auto-select immediately and the player stayed knife-only.
 		if( SGTC_PackAuto_HasChosenLoadout( pPlayer ) )
 		{
-			ALERT( at_console, "SGTC_PACKAUTO {\"cmd\":\"cancel\",\"player\":\"%s\",\"reason\":\"armed\"}\n",
+			SGTC_DevLog( "SGTC_PACKAUTO {\"cmd\":\"cancel\",\"player\":\"%s\",\"reason\":\"armed\"}\n",
 				STRING( pPlayer->pev->netname ) );
 			pPlayer->m_flSgtcPackDeadline = 0.0f;
 			continue;
@@ -229,7 +230,7 @@ void SGTC_PackAuto_Tick( void )
 			ClientPrint( pPlayer->pev, HUD_PRINTTALK,
 				"[SGTC] No loadout chosen in time - a default loadout was selected for you.\n" );
 
-		ALERT( at_console, "SGTC_PACKAUTO {\"cmd\":\"select\",\"player\":\"%s\",\"team\":%d,\"class\":%d,\"pack\":%d,\"mode\":%.0f}\n",
+		SGTC_DevLog( "SGTC_PACKAUTO {\"cmd\":\"select\",\"player\":\"%s\",\"team\":%d,\"class\":%d,\"pack\":%d,\"mode\":%.0f}\n",
 			STRING( pPlayer->pev->netname ), iTeam, iClass, iChosenPack, sgtc_cvar_wepselmode.value );
 	}
 }

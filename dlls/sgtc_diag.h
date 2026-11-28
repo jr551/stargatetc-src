@@ -14,3 +14,13 @@ void SGTC_DiagSpawn( const char *pszClass, CBaseEntity *pOwner, const Vector &ve
 void SGTC_DiagGrant( CBaseEntity *pPlayer, const char *pszWeapon, int iWeaponBits );
 void SGTC_DiagWeaponList( CBaseEntity *pPlayer, int iRecords );
 void SGTC_DiagBeam( CBaseEntity *pStart, CBaseEntity *pEnd, int iSprite, int iNoise );
+
+// Developer JSON lines (SGTC_PACKAUTO, SGTC_BOT_LOADOUT, SGTC_SP_ENEMIES). The headless
+// runs read them from the console log, so they stay on for sgtc_test_enable and
+// sgtc_diag_log runs. In normal play ALERT( at_console ) text lands in the on-screen
+// notify area, so they stay silent there.
+#if defined( __GNUC__ )
+void SGTC_DevLog( const char *pszFormat, ... ) __attribute__(( format( printf, 1, 2 ) ));
+#else
+void SGTC_DevLog( const char *pszFormat, ... );
+#endif

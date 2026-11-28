@@ -30,6 +30,7 @@
 
 #include "extdll.h"
 #include "util.h"
+#include "sgtc_diag.h"
 #include "cbase.h"
 #include "monsters.h"
 #include "gamerules.h"
@@ -403,7 +404,7 @@ void CSgtcJaffa::JaffaThink( void )
 			{												\
 				pJaffa->pev->targetname = pev->targetname;	\
 				pJaffa->pev->target = pev->target;			\
-				ALERT( at_console, "SGTC_SP_ENEMIES {\"cmd\":\"shim\",\"old\":\"%s\",\"new\":\"%s\",\"origin\":[%.1f,%.1f,%.1f]}\n", \
+				SGTC_DevLog( "SGTC_SP_ENEMIES {\"cmd\":\"shim\",\"old\":\"%s\",\"new\":\"%s\",\"origin\":[%.1f,%.1f,%.1f]}\n", \
 					STRING( pev->classname ), jaffaClass,	\
 					pev->origin.x, pev->origin.y, pev->origin.z ); \
 			}												\
@@ -493,12 +494,12 @@ void SGTC_SP_EnemiesActivate( void )
 			pJaffa->pev->targetname = targetname;
 			pJaffa->pev->target = target;
 			++iReplaced;
-			ALERT( at_console, "SGTC_SP_ENEMIES {\"cmd\":\"replace\",\"old\":\"%s\",\"new\":\"%s\",\"origin\":[%.1f,%.1f,%.1f]}\n",
+			SGTC_DevLog( "SGTC_SP_ENEMIES {\"cmd\":\"replace\",\"old\":\"%s\",\"new\":\"%s\",\"origin\":[%.1f,%.1f,%.1f]}\n",
 				pszClass, pszNew, vecOrigin.x, vecOrigin.y, vecOrigin.z );
 		}
 		UTIL_Remove( CBaseEntity::Instance( e ) );
 	}
 
-	ALERT( at_console, "SGTC_SP_ENEMIES {\"cmd\":\"activate\",\"map\":\"%s\",\"replaced\":%d}\n",
+	SGTC_DevLog( "SGTC_SP_ENEMIES {\"cmd\":\"activate\",\"map\":\"%s\",\"replaced\":%d}\n",
 		STRING( gpGlobals->mapname ), iReplaced );
 }

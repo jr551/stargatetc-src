@@ -18,6 +18,7 @@
 
 #include "extdll.h"
 #include "util.h"
+#include "sgtc_diag.h"
 #include "cbase.h"
 #include "player.h"
 #include "game.h"
@@ -1536,7 +1537,7 @@ void SGTC_Bots_GiveSpawnLoadout( CBasePlayer *pl )
 	// spawn rules always add the team melee weapon
 	pl->GiveNamedItem( ( pl->pev->team == SGTC_ENTTEAM_GOAULD ) ? "weapon_coujaf" : "weapon_couteau" );
 
-	ALERT( at_console, "SGTC_BOT_LOADOUT {\"cmd\":\"grant\",\"name\":\"%s\",\"team\":%d,\"class\":%d,\"slots\":%d}\n",
+	SGTC_DevLog( "SGTC_BOT_LOADOUT {\"cmd\":\"grant\",\"name\":\"%s\",\"team\":%d,\"class\":%d,\"slots\":%d}\n",
 		STRING( pl->pev->netname ), team, cls, granted );
 	SGTC_ReaDebug_ArmPlayer( pl );	// build-8: no-op unless sgtc_rea_debug 1
 }
