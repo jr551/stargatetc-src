@@ -540,9 +540,9 @@ TeamFortressViewport::TeamFortressViewport( int x, int y, int wide, int tall ) :
 		m_SchemeManager.getBgColor( hPrimaryScheme, r, g, b, a );
 		pScheme->setColor( Scheme::sc_primary3, r, g, b, a );
 
-		// armed foreground color
-		m_SchemeManager.getFgArmedColor( hPrimaryScheme, r, g, b, a );
-		pScheme->setColor( Scheme::sc_secondary2, r, g, b, a );
+		// armed foreground color. The scheme value is dark blue, which was hard to
+		// read on the bright blue armed fill; use white for the highlighted label.
+		pScheme->setColor( Scheme::sc_secondary2, 255, 255, 255, 0 );
 
 		// armed background color
 		m_SchemeManager.getBgArmedColor( hPrimaryScheme, r, g, b, a );

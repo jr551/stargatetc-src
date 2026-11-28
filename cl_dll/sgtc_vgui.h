@@ -63,6 +63,10 @@
 // queued-menu semantics work exactly like the server-driven panels above.
 #define SGTC_MENU_OPTIONS     70
 
+// Layout scale for the SGTC menus 5, 10 and 11 (defined in sgtc_vgui_panels.cpp):
+// one factor for both axes, 1.0 at 1280x800, so a size keeps its proportions.
+int SgtcLayout_S( int v );
+
 // Team numbers on the wire are the SgtcTeam values from sgtc_enums.h:
 // 1 = Torri, 2 = Goa'uld (Unas mode: 1 = Unas, 2 = Marine). That is what the
 // server sends in ScoreInfo (teamnumber = GetTeamIndex()+1) and in the
