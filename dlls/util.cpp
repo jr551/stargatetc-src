@@ -40,11 +40,22 @@ qboolean SGTC_SoundFileExists( const char *sample )
 {
 	int length = 0;
 	void *buffer;
+	char path[256];
 
 	if( !sample || !sample[0] )
 		return FALSE;
 
-	buffer = LOAD_FILE_FOR_ME( (char *)sample, &length );
+	// PRECACHE_SOUND takes a name relative to sound/ ("weapons/c4_beep.wav"), but the
+	// engine's file loader reads from the game root. Without the prefix every sound
+	// looked missing, so nothing went through PRECACHE_SOUND and the first EMIT_SOUND
+	// logged "late precache of weapons/c4_beep.wav" in the middle of a round.
+	if( strncmp( sample, "sound/", 6 ) == 0 )
+		strncpy( path, sample, sizeof( path ) - 1 );
+	else
+		snprintf( path, sizeof( path ), "sound/%s", sample );
+	path[sizeof( path ) - 1] = '\0';
+
+	buffer = LOAD_FILE_FOR_ME( path, &length );
 	if( !buffer )
 		return FALSE;
 
