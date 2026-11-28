@@ -20,10 +20,12 @@
 // deathmatch 0) and a one-client server, same gate as sp_shims.cpp.  New cvar
 // sgtc_sp_enemies (default 1) switches the substitution off for parity tests.
 //
-// Jaffa model: models/jaffa.mdl (82 sequences, grunt-style animation labels:
-// walk1/run/idle1/combatidle/standing_mp5/dieback1) with external textures in
-// the companion jaffaT.mdl (engine loads it when numtextures == 0; see
-// xashsrc engine/common/mod_studio.c:953).  Ranged attack reuses CZatProj so
+// Jaffa model: models/player/goauld3/goauld3.mdl, the mod's own Jaffa class body
+// (sgtc_rules.cpp maps SGTC_CLASS_JAFFA to "goauld3").  It ships with the 85
+// player-style sequences idle, run, walk, aim_1, ref_aim_mp5, ref_shoot_crowbar,
+// die_backwards1 and die_forwards.  The old models/jaffa.mdl is NOT in the
+// shipped package: SET_MODEL failed and the Jaffa spawned invisible.
+// Ranged attack reuses CZatProj so
 // the SP Jaffa shoots the same visible zat wave bolt the player's zat uses.
 
 #include "extdll.h"
@@ -34,6 +36,7 @@
 #include "player.h"
 #include "weapons.h"
 #include "sgtc_misc.h"
+#include <math.h>
 
 // ---------------------------------------------------------------------------
 // Cvar / gate
@@ -56,7 +59,7 @@ void SGTC_SP_EnemiesInit( void )
 // ---------------------------------------------------------------------------
 // Jaffa monster
 // ---------------------------------------------------------------------------
-#define JAFFA_MODEL			"models/jaffa.mdl"
+#define JAFFA_MODEL			"models/player/goauld3/goauld3.mdl"
 #define JAFFA_HP_NORMAL		60.0f
 #define JAFFA_HP_BIG		320.0f
 #define JAFFA_SCALE_BIG		1.5f
@@ -84,12 +87,16 @@ public:
 	void FindPlayer( CBaseEntity **ppPlayer, float *pDist );
 	void MeleeAttack( CBaseEntity *pTarget );
 	void RangedAttack( CBaseEntity *pTarget );
+	Vector FindClearHeading( const Vector &vecWish );
 
 	float m_flNextRanged;
 	float m_flNextMelee;
 	float m_flRemoveTime;
 	float m_flStuckTime;
 	Vector m_vecLastOrigin;
+	float m_flProgressCheck;		// next time chase progress is measured
+	Vector m_vecProgressOrigin;		// position at the last measurement
+	Vector m_vecSteer;				// clear heading taken while blocked
 };
 
 LINK_ENTITY_TO_CLASS( monster_sgtc_jaffa, CSgtcJaffa );
@@ -155,6 +162,9 @@ void CSgtcJaffa::Spawn( void )
 	m_flRemoveTime = 0.0f;
 	m_flStuckTime = 0.0f;
 	m_vecLastOrigin = pev->origin;
+	m_flProgressCheck = gpGlobals->time + 0.5f;
+	m_vecProgressOrigin = pev->origin;
+	m_vecSteer = Vector( 0, 0, 0 );
 
 	InitBoneControllers();
 	UTIL_SetSize( pev, VEC_HUMAN_HULL_MIN, VEC_HUMAN_HULL_MAX );
@@ -164,7 +174,7 @@ void CSgtcJaffa::Spawn( void )
 	pev->origin.z += 1.0f;
 	DROP_TO_FLOOR( ENT( pev ) );
 
-	SetAnim( "idle1", 11, 1.0f );
+	SetAnim( "idle", 1, 1.0f );
 
 	SetThink( &CSgtcJaffa::JaffaThink );
 	pev->nextthink = gpGlobals->time + 0.1f;
@@ -179,9 +189,9 @@ void CSgtcJaffa::Killed( entvars_t *pevAttacker, int iGib )
 	pev->deadflag = DEAD_DYING;
 	pev->velocity = Vector( 0, 0, 0 );
 	if( RANDOM_LONG( 0, 1 ) == 0 )
-		SetAnim( "dieback1", 29, 1.0f );
+		SetAnim( "die_backwards1", 19, 1.0f );
 	else
-		SetAnim( "dieforward", 30, 1.0f );
+		SetAnim( "die_forwards", 21, 1.0f );
 	m_flRemoveTime = gpGlobals->time + 2.5f;
 }
 
@@ -217,7 +227,7 @@ void CSgtcJaffa::MeleeAttack( CBaseEntity *pTarget )
 	TraceResult tr;
 	UTIL_TraceLine( vecSrc, vecEnd, dont_ignore_monsters, ENT( pev ), &tr );
 
-	SetAnim( "frontkick", 14, 1.0f );
+	SetAnim( "ref_shoot_crowbar", 26, 1.0f );
 	if( tr.pHit && CBaseEntity::Instance( tr.pHit ) == pTarget )
 	{
 		ClearMultiDamage();
@@ -246,9 +256,36 @@ void CSgtcJaffa::RangedAttack( CBaseEntity *pTarget )
 		// out of range on the shipped model (engine warning spam), so use 0.
 		pProj->pev->sequence = 0;
 	}
-	SetAnim( "standing_mp5", 44, 1.0f );
+	SetAnim( "ref_aim_mp5", 49, 1.0f );
 	EMIT_SOUND( ENT( pev ), CHAN_WEAPON, "weapons/electro4.wav", 0.8f, ATTN_NORM );
 	m_flNextRanged = gpGlobals->time + JAFFA_RANGED_DELAY;
+}
+
+// Horizontal heading near vecWish that a 96-unit chest-height trace can take.
+// Tries the wish direction, then 45, 90, 135 and 180 degrees to each side, and
+// falls back to the clearest one when every direction is blocked.
+Vector CSgtcJaffa::FindClearHeading( const Vector &vecWish )
+{
+	static const float flAngles[] = { 0.0f, 45.0f, -45.0f, 90.0f, -90.0f, 135.0f, -135.0f, 180.0f };
+	const Vector vecChest = pev->origin + Vector( 0, 0, 24 );
+	Vector vecBest = vecWish;
+	float flBestFrac = -1.0f;
+	for( int i = 0; i < (int)( sizeof( flAngles ) / sizeof( flAngles[0] ) ); ++i )
+	{
+		const float flRad = flAngles[i] * ( 3.14159265f / 180.0f );
+		const Vector vecTry( vecWish.x * (float)cos( flRad ) - vecWish.y * (float)sin( flRad ),
+			vecWish.x * (float)sin( flRad ) + vecWish.y * (float)cos( flRad ), 0.0f );
+		TraceResult tr;
+		UTIL_TraceLine( vecChest, vecChest + vecTry * 96.0f, ignore_monsters, ENT( pev ), &tr );
+		if( tr.flFraction >= 0.99f )
+			return vecTry;
+		if( tr.flFraction > flBestFrac )
+		{
+			flBestFrac = tr.flFraction;
+			vecBest = vecTry;
+		}
+	}
+	return vecBest;
 }
 
 void CSgtcJaffa::JaffaThink( void )
@@ -275,7 +312,7 @@ void CSgtcJaffa::JaffaThink( void )
 	if( !pTarget )
 	{
 		pev->velocity = Vector( 0, 0, 0 );
-		SetAnim( "idle1", 11, 1.0f );
+		SetAnim( "idle", 1, 1.0f );
 		pev->nextthink = gpGlobals->time + 0.25f;
 		return;
 	}
@@ -306,18 +343,22 @@ void CSgtcJaffa::JaffaThink( void )
 			vecMove = vecMove.Normalize();
 
 		const float flSpeed = Variant() ? JAFFA_SPEED_BIG : JAFFA_SPEED_NORMAL;
-		if( ( pev->origin - m_vecLastOrigin ).Length() < 1.0f &&
-			gpGlobals->time > m_flNextRanged )
+		if( gpGlobals->time >= m_flProgressCheck )
 		{
-			m_flStuckTime = gpGlobals->time + 0.4f;
+			// blocked when the Jaffa has not moved 16 units in half a second:
+			// take a clear heading near the target direction for one second
+			if( ( pev->origin - m_vecProgressOrigin ).Length() < 16.0f )
+			{
+				m_flStuckTime = gpGlobals->time + 1.0f;
+				m_vecSteer = FindClearHeading( vecMove );
+			}
+			m_vecProgressOrigin = pev->origin;
+			m_flProgressCheck = gpGlobals->time + 0.5f;
 		}
 		if( m_flStuckTime > gpGlobals->time )
-		{
-			vecMove = Vector( -vecMove.y, vecMove.x, 0.0f );
-		}
-		m_vecLastOrigin = pev->origin;
+			vecMove = m_vecSteer;
 		pev->velocity = vecMove * flSpeed;
-		SetAnim( "run", 1, 1.0f );
+		SetAnim( "run", 12, 1.0f );
 	}
 	else
 	{
@@ -332,7 +373,7 @@ void CSgtcJaffa::JaffaThink( void )
 		}
 		else
 		{
-			SetAnim( "combatidle", 13, 1.0f );
+			SetAnim( "aim_1", 16, 1.0f );
 		}
 	}
 

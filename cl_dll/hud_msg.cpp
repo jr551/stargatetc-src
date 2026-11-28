@@ -88,7 +88,9 @@ int CHud::MsgFunc_GameMode( const char *pszName, int iSize, void *pbuf )
 	BEGIN_READ( pbuf, iSize );
 	m_Teamplay = READ_BYTE();
 
-	if( m_Teamplay )
+	if( m_Teamplay == 2 )
+		ClientCmd( "richpresence_gamemode Deathmatch\n" );	// CStargateTeamDM sends 2
+	else if( m_Teamplay )
 		ClientCmd( "richpresence_gamemode Teamplay\n" );
 	else
 		ClientCmd( "richpresence_gamemode\n" );

@@ -89,6 +89,8 @@
 #include <VGUI_TextImage.h>		// gEngfuncs.pDemoAPI->IsPlayingback()
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 #include <string>
 #include <vector>
@@ -778,6 +780,7 @@ private:
 	CSgtcBriefingView *m_pBriefingView;
 	CommandButton *m_pOKButton;
 	bool m_bBriefingLoaded;
+	int m_iBriefingMode;	// SgtcBriefing_ModeId() the cached text was built for
 };
 
 CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y, int wide, int tall )
@@ -908,6 +911,7 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 
 
 	m_bBriefingLoaded = false;
+	m_iBriefingMode = -1;
 
 	m_pBriefingView->Layout();
 }
@@ -954,6 +958,68 @@ void CSgtcBriefingPanel::FitBriefingAboveOk( void )
 		m_pBriefingView->SetTall( iMaxBottom - iViewTop );
 }
 
+// Mode the briefing is written for: 0 = single player (the client has one
+// slot), 2 = Deathmatch (GameMode byte 2, sent by CStargateTeamDM), 1 = any
+// other multiplayer mode.
+static int SgtcBriefing_ModeId( void )
+{
+	if ( gEngfuncs.GetMaxClients() < 2 )
+		return 0;
+	return ( gHUD.m_Teamplay == 2 ) ? 2 : 1;
+}
+
+// Case-insensitive match of the "Game Type" label that opens the map files
+// (the files spell it both "Game Type" and "Game type").
+static bool SgtcBriefing_IsGameTypeLine( const char *psz )
+{
+	static const char szLabel[] = "game type";
+	for ( int i = 0; i < (int)sizeof( szLabel ) - 1; ++i )
+	{
+		if ( psz[i] == 0 || tolower( (unsigned char)psz[i] ) != szLabel[i] )
+			return false;
+	}
+	return true;
+}
+
+// Mode line for the briefing, then the map file minus its own "Game Type" line:
+// that line describes the map's multiplayer rules, not the mode being played.
+// Returns NULL when the file is shown as it is (other multiplayer modes).
+// The caller frees a non-NULL result with free().
+static char *SgtcBriefing_ModeText( int iMode, const char *pszBody )
+{
+	const char *pszHeader = NULL;
+	if ( iMode == 2 )
+		pszHeader = "Mode: Deathmatch\n\n";
+	else if ( iMode == 0 )
+		pszHeader = "Mode: Single player\n\n";
+	else
+		return NULL;
+
+	char *pszOut = (char *)malloc( strlen( pszHeader ) + strlen( pszBody ) + 1 );
+	if ( !pszOut )
+		return NULL;
+	strcpy( pszOut, pszHeader );
+	char *pszWrite = pszOut + strlen( pszHeader );
+
+	const char *pszLine = pszBody;
+	while ( *pszLine )
+	{
+		const char *pszEnd = strchr( pszLine, '\n' );
+		size_t cbLine = pszEnd ? (size_t)( pszEnd - pszLine ) + 1 : strlen( pszLine );
+		const char *pszTrim = pszLine;
+		while ( *pszTrim == ' ' || *pszTrim == '\t' )
+			++pszTrim;
+		if ( !SgtcBriefing_IsGameTypeLine( pszTrim ) )
+		{
+			memcpy( pszWrite, pszLine, cbLine );
+			pszWrite += cbLine;
+		}
+		pszLine += cbLine;
+	}
+	*pszWrite = 0;
+	return pszOut;
+}
+
 void CSgtcBriefingPanel::Refresh( void )
 {
 	FitBriefingAboveOk();
@@ -962,7 +1028,7 @@ void CSgtcBriefingPanel::Refresh( void )
 	// value (FUN_100404a0 "%s").
 	m_pServerName->setText( "%s", gViewPort->m_szServerName );
 
-	if ( m_bBriefingLoaded )
+	if ( m_bBriefingLoaded && SgtcBriefing_ModeId() == m_iBriefingMode )
 	{
 		m_pBriefingView->Layout();
 		return;
@@ -1000,9 +1066,23 @@ void CSgtcBriefingPanel::Refresh( void )
 	{
 		// Missing briefing keeps the localised "#objectif_manquant" default,
 		// like the ref (it only calls setText when COM_LoadFile succeeded).
-		m_pBriefingView->SetText( pfile );
+		char *pszModeText = SgtcBriefing_ModeText( SgtcBriefing_ModeId(), pfile );
+		m_pBriefingView->SetText( pszModeText ? pszModeText : pfile );
+		free( pszModeText );
 		gEngfuncs.COM_FreeFile( pfile );
 	}
+	else
+	{
+		// No briefing file (sg_world1 has none): the mode line still goes above
+		// the localised "#objectif_manquant" text. Other multiplayer modes show
+		// the plain default again, so a mode change cannot leave a stale header.
+		const char *pszDefault =
+			L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#objectif_manquant" ) );
+		char *pszModeText = SgtcBriefing_ModeText( SgtcBriefing_ModeId(), pszDefault );
+		m_pBriefingView->SetText( pszModeText ? pszModeText : pszDefault );
+		free( pszModeText );
+	}
+	m_iBriefingMode = SgtcBriefing_ModeId();
 	m_bBriefingLoaded = true;
 
 	// Ref never resizes the text panel; ScrollPanel's auto-visible mode picks up
