@@ -79,10 +79,11 @@ int CHandGrenade::GetItemInfo( ItemInfo *p )
 BOOL CHandGrenade::Deploy()
 {
 	m_flReleaseThrow = -1;
-	// Torri (pev->team == SGTC_ENTTEAM_TORRI) uses the T-suffixed viewmodel like other SGTC weapons.
-	const char *pszView = ( m_pPlayer->pev->team == SGTC_ENTTEAM_TORRI )
-		? "models/v_grenadeT.mdl" : "models/v_grenade.mdl";
-	return DefaultDeploy( pszView, "models/p_grenade.mdl", HANDGRENADE_DRAW, "crowbar" );
+	// models/v_grenadeT.mdl is the texture file of v_grenade.mdl (no bones, no sequences, six
+	// textures); the engine loads it by itself for v_grenade.mdl. Deploying it as the viewmodel
+	// for the Torri team drew nothing and could crash the client in R_StudioClientEvents when the
+	// animation of the next weapon indexed its empty sequence table. Both teams use v_grenade.mdl.
+	return DefaultDeploy( "models/v_grenade.mdl", "models/p_grenade.mdl", HANDGRENADE_DRAW, "crowbar" );
 }
 
 BOOL CHandGrenade::CanHolster( void )

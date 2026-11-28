@@ -2042,6 +2042,19 @@ static void run_part( char *part )
 	char *end = part + strlen( part );
 	while( end > part && ( end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n' ) ) *--end = 0;
 	if( !*part ) return;
+
+	// `srv <command>` hands the rest of the part to the server console, so a
+	// timed script can drive commands that are not sgtc_test subcommands
+	// (sgtc_bot_hear, sgtc_bot_add, ...).
+	if( !strncmp( part, "srv ", 4 ) )
+	{
+		char cmd[256];
+
+		snprintf( cmd, sizeof( cmd ), "%s\n", part + 4 );
+		SERVER_COMMAND( cmd );
+		return;
+	}
+
 	if( !SGTC_TestRunToken( part ) )
 		run_line( part );
 }

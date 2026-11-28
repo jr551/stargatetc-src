@@ -23,6 +23,7 @@
 #include "bot_name_sanitize.h"
 #include "bot_trace.h"
 #include "bot_radio.h"
+#include "bot_learn.h"
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -36,6 +37,8 @@ extern int default_bot_skill;
 // It only ORs IN_ATTACK into v.button and issues weapon switches, so it must
 // run after combat has decided the frame and before the move is sent.
 extern void SGTC_Bots_ClassPlay(bot_t &pBot);
+extern int sgtc_bot_skill_spread_enabled;
+extern void SGTC_Bots_StaminaGate(bot_t &pBot);
 extern void SGTC_Bots_GateTimingFrame(bot_t &pBot);
 extern int bot_add_level_tag;
 extern int bot_chat_percent;
@@ -141,6 +144,7 @@ static void BotSpawnInit_TimersAndPhysics( bot_t &pBot )
    pBot.f_roam_target_time = 0.0f;
    pBot.b_roam_target_set = FALSE;
    pBot.b_roam_have_spawn = FALSE;
+   pBot.f_no_wpt_since = 0.0f;
    if (pBot.pEdict)
    {
       pBot.v_roam_spawn = pBot.pEdict->v.origin;
@@ -848,6 +852,26 @@ static void BotCreate_ProcessSkillAndColors(int &skill, int &top_color,
    {
       skill = default_bot_skill;
       got_skill_arg = FALSE;
+
+#ifdef JK_BOTTI_NATIVE
+      // SGTC: people differ. Spread the bots one level either side of the
+      // server's setting (a quarter a notch better, a quarter a notch worse)
+      // so a room of bots is not six copies of the same player.
+      if (sgtc_bot_skill_spread_enabled)
+      {
+         const int roll = RANDOM_LONG2(1, 100);
+
+         if (roll <= 25)
+            skill--;
+         else if (roll > 75)
+            skill++;
+
+         if (skill < 1)
+            skill = 1;
+         if (skill > 5)
+            skill = 5;
+      }
+#endif
    }
 
    if ((top_color < 0) || (top_color > 255))
@@ -1015,8 +1039,11 @@ static void BotCreate_InitializeState(int index, edict_t *BotEnt,
    pBot.b_bot_say = FALSE;
    pBot.f_bot_say = 0.0;
    pBot.bot_say_msg[0] = 0;
-   pBot.f_bot_chat_time = gpGlobals->time;
+   // SGTC: stagger the first idle remark so a room full of bots does not
+   // start talking in the same second.
+   pBot.f_bot_chat_time = gpGlobals->time + RANDOM_FLOAT2(40.0f, 200.0f);
    pBot.b_bot_endgame = FALSE;
+   pBot.b_chat_greeted = FALSE;
 
    // use system wide timer for connection times
    // bot will stay 30-160 minutes
@@ -1951,6 +1978,10 @@ static void BotWanderHandleStation(bot_t &pBot, qboolean &b_use_station, float f
 qboolean BotRoamStep(bot_t &pBot)
 {
    edict_t *pEdict = pBot.pEdict;
+
+#ifdef JK_BOTTI_NATIVE
+   BotLearn_NoteVisit(pBot);
+#endif
    const Vector base = pBot.b_roam_have_spawn ? pBot.v_roam_spawn : pEdict->v.origin;
    TraceResult tr;
    qboolean picked = FALSE;
@@ -1965,7 +1996,13 @@ qboolean BotRoamStep(bot_t &pBot)
        pBot.f_roam_target_time <= gpGlobals->time ||
        (pBot.v_roam_target - pEdict->v.origin).Length2D() < 64.0f)
    {
-      for (int attempt = 0; attempt < 8; attempt++)
+      // SGTC: of the candidates that pass, take the one in the least-walked
+      // part of the map (bot_learn.cpp), so a bot with no waypoint graph spreads
+      // out of its room instead of pacing about it.
+      float best_visits = 0.0f;
+      int valid = 0;
+
+      for (int attempt = 0; attempt < 8 && valid < 4; attempt++)
       {
          const float yaw = RANDOM_FLOAT2(0.0f, 360.0f);
          const float distance = RANDOM_FLOAT2(200.0f, 700.0f);
@@ -1986,11 +2023,28 @@ qboolean BotRoamStep(bot_t &pBot)
          if (tr.flFraction < 1.0f)
             continue;
 
+         valid++;
+
+#ifdef JK_BOTTI_NATIVE
+         const float visits = BotLearn_VisitWeight(spot);
+
+         if (!picked || visits < best_visits)
+         {
+            best_visits = visits;
+            pBot.v_roam_target = spot;
+            picked = TRUE;
+         }
+#else
          pBot.v_roam_target = spot;
-         pBot.b_roam_target_set = TRUE;
-         pBot.f_roam_target_time = gpGlobals->time + RANDOM_FLOAT2(6.0f, 12.0f);
          picked = TRUE;
          break;
+#endif
+      }
+
+      if (picked)
+      {
+         pBot.b_roam_target_set = TRUE;
+         pBot.f_roam_target_time = gpGlobals->time + RANDOM_FLOAT2(6.0f, 12.0f);
       }
 
       if (!picked)
@@ -2283,6 +2337,7 @@ static void BotWanderFreeRoam(bot_t &pBot, float moved_distance)
    }
 
    qboolean found_waypoint = FALSE;
+   qboolean tried_waypoint = FALSE;
 
    // if the bot is not trying to get to something AND
    // it is time to look for a waypoint AND
@@ -2293,14 +2348,39 @@ static void BotWanderFreeRoam(bot_t &pBot, float moved_distance)
        (num_waypoints != 0))
    {
       found_waypoint = BotHeadTowardWaypoint(pBot);
+      tried_waypoint = TRUE;
    }
 
    // SGTC: no waypoints on this map at all (no .wpt file, and no map-object
    // waypoints either). Fall back to a roam loop instead of relying only on the
    // random-turn wander code, so a headless playtest always sees movement.
+   //
+   // The same loop covers a bot that has waypoints on the map but none it can
+   // reach from where it stands (a sparse graph, or a bot knocked off it): a
+   // few seconds of failed searches and it walks on its own until a node is in
+   // reach again, instead of standing and jumping at its spawn.
 #ifdef JK_BOTTI_NATIVE
-   if (!found_waypoint && (num_waypoints == 0) && sgtc_bot_roam_enabled && !pBot.b_on_ladder)
+   if (tried_waypoint)
    {
+      if (found_waypoint)
+         pBot.f_no_wpt_since = 0.0f;
+      else if (pBot.f_no_wpt_since <= 0.0f)
+         pBot.f_no_wpt_since = gpGlobals->time;
+   }
+
+   const qboolean lost_waypoints = (num_waypoints != 0) && !found_waypoint &&
+      (pBot.f_no_wpt_since > 0.0f) && (gpGlobals->time - pBot.f_no_wpt_since > 3.0f);
+
+   if (!found_waypoint && (num_waypoints == 0 || lost_waypoints) && sgtc_bot_roam_enabled && !pBot.b_on_ladder)
+   {
+      if (lost_waypoints && (!pBot.b_roam_target_set || pBot.f_roam_target_time <= gpGlobals->time ||
+          (pBot.v_roam_target - pBot.pEdict->v.origin).Length2D() < 64.0f))
+      {
+         // roam from here, not from the spawn the bot left a while ago
+         pBot.v_roam_spawn = pBot.pEdict->v.origin;
+         pBot.b_roam_have_spawn = TRUE;
+      }
+
       BotRoamStep(pBot);
    }
 #endif
@@ -3355,6 +3435,12 @@ static void BotThinkFinalizeMovement(bot_t &pBot)
    // dials the map's DHD chain when closed, and crosses only inside the open
    // window. Must be before BotRunPlayerMove so f_move_speed/buttons stick.
    SGTC_Bots_GateTimingFrame(pBot);
+
+   // SGTC: stop and catch a breath when stamina runs low. Below 20 the game
+   // clamps maxspeed to 10 u/s, and a bot that keeps pushing never recovers.
+   // Before f_prev_speed is saved so the stuck detector sees the rest as a
+   // standstill, not as being stuck.
+   SGTC_Bots_StaminaGate(pBot);
 
    // save the previous speed (for checking if stuck)
    pBot.f_prev_speed = pBot.f_move_speed;

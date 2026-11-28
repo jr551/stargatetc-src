@@ -13,6 +13,7 @@
 
 #include "bot.h"
 #include "bot_func.h"
+#include "bot_persona.h"
 
 
 #define NUM_TAGS 24
@@ -45,6 +46,28 @@ extern int bot_chat_drop_percent;
 extern int bot_chat_swap_percent;
 extern int bot_chat_lower_percent;
 
+
+// SGTC: shared pacing so a room of bots does not talk over each other. Each
+// message takes the next free slot, 2.5 s after the previous one.
+static float g_chat_next_slot = 0.0f;
+static float g_chat_next_hear = 0.0f;
+static int recent_persona[BOT_PERSONA_SECTIONS][5];
+
+static void LoadBotChatAddMessage(bot_chat_t *array, int *count, const char *buffer, int length);
+
+static void LoadBotChatPersona(bot_chat_t *array, int *count, int section)
+{
+   if (*count > 0)
+      return;
+
+   for (int n = 0; n < BotPersona_LineCount(section); n++)
+   {
+      const char *line = BotPersona_Line(section, n);
+
+      if (line)
+         LoadBotChatAddMessage(array, count, line, (int)strlen(line));
+   }
+}
 
 static void LoadBotChatAddMessage(bot_chat_t *array, int *count, const char *buffer, int length)
 {
@@ -151,6 +174,20 @@ void LoadBotChat(void)
       else if (section == 3)
          LoadBotChatAddMessage(bot_endgame, &bot_endgame_count, buffer, length);
    }
+
+   // SGTC: the install ships no chat file, so the bots never said a word.
+   // Whatever section the file left empty is filled from the built-in lines.
+   LoadBotChatPersona(bot_chat, &bot_chat_count, BOT_PERSONA_CHAT);
+   LoadBotChatPersona(bot_taunt, &bot_taunt_count, BOT_PERSONA_TAUNT);
+   LoadBotChatPersona(bot_whine, &bot_whine_count, BOT_PERSONA_WHINE);
+   LoadBotChatPersona(bot_endgame, &bot_endgame_count, BOT_PERSONA_ENDGAME);
+
+   for (i=0; i < BOT_PERSONA_SECTIONS; i++)
+      for (int k=0; k < 5; k++)
+         recent_persona[i][k] = -1;
+
+   g_chat_next_slot = 0.0f;
+   g_chat_next_hear = 0.0f;
 }
 
 
@@ -543,6 +580,71 @@ static void BotChatGetText(const bot_chat_t *msg, char *chat_text, int sizeof_ch
 }
 
 
+// SGTC: queue the message already built in bot_say_msg. The bot takes the next
+// free slot (messages from different bots never land closer than 2.5 s) and
+// types at a person's pace, 0.12-0.2 s a character after its reaction time.
+static void BotChatSchedule(bot_t &pBot, float lead_min, float lead_max)
+{
+   float t = gpGlobals->time + RANDOM_FLOAT2(lead_min, lead_max) +
+      strlen(pBot.bot_say_msg) * RANDOM_FLOAT2(0.12, 0.2);
+
+   // gpGlobals->time restarts on a new map: a slot from the last one would
+   // otherwise silence every bot until it came round again
+   if (g_chat_next_slot > gpGlobals->time + 60.0f)
+      g_chat_next_slot = 0.0f;
+
+   if (t < g_chat_next_slot)
+      t = g_chat_next_slot;
+
+   g_chat_next_slot = t + 2.5f;
+
+   pBot.b_bot_say = TRUE;
+   pBot.f_bot_say = t;
+}
+
+
+// SGTC: say one of the built-in lines of `section`, optionally addressed to
+// `target` (the %n in the line). Returns FALSE when the bot is already about to
+// say something.
+static qboolean BotChatSayPersona(bot_t &pBot, int section, edict_t *target, float lead_min, float lead_max)
+{
+   char chat_text[81];
+   char chat_name[64];
+   char raw_name[64];
+   const int count = BotPersona_LineCount(section);
+
+   if (count <= 0)
+      return FALSE;
+
+   if (pBot.b_bot_say && pBot.f_bot_say >= gpGlobals->time)
+      return FALSE;
+
+   const int index = BotChatPickRandom(count, recent_persona[section]);
+   const char *line = BotPersona_Line(section, index);
+
+   if (!line)
+      return FALSE;
+
+   BotChatText(line, chat_text, sizeof(chat_text));
+
+   raw_name[0] = 0;
+   if (!FNullEnt(target) && target->v.netname)
+      safe_strcopy(raw_name, sizeof(raw_name), STRING(target->v.netname));
+
+   if (raw_name[0])
+      BotChatName(raw_name, chat_name, sizeof(chat_name));
+   else
+      safe_strcopy(chat_name, sizeof(chat_name), "all");
+
+   BotChatFillInName(pBot.bot_say_msg, sizeof(pBot.bot_say_msg), chat_text, chat_name, raw_name,
+      STRING(pBot.pEdict->v.netname));
+
+   BotChatSchedule(pBot, lead_min, lead_max);
+
+   return TRUE;
+}
+
+
 // taunt on killed player
 void BotChatTaunt(bot_t &pBot, edict_t *victim_edict)
 {
@@ -575,9 +677,8 @@ void BotChatTaunt(bot_t &pBot, edict_t *victim_edict)
 
       BotChatFillInName(pBot.bot_say_msg, sizeof(pBot.bot_say_msg), chat_text, chat_name, temp_name, bot_name);
 
-      // set chat flag and time to chat (typing one character takes 0.2sec) ...
-      pBot.b_bot_say = TRUE;
-      pBot.f_bot_say = gpGlobals->time + RANDOM_FLOAT2(0.5, 1.0) + strlen(pBot.bot_say_msg) * RANDOM_FLOAT2(0.2, 0.3);
+      // queue it: reaction time, then typing, behind any other bot's message
+      BotChatSchedule(pBot, 0.5, 1.0);
    }
 }
 
@@ -618,13 +719,14 @@ void BotChatWhine(bot_t &pBot)
 
          BotChatFillInName(pBot.bot_say_msg, sizeof(pBot.bot_say_msg), chat_text, chat_name, temp_name, bot_name);
 
-         // set chat flag and time to chat (typing one character takes 0.2sec) ...
-         pBot.b_bot_say = TRUE;
-         pBot.f_bot_say = gpGlobals->time + RANDOM_FLOAT2(0.5, 1.0) + strlen(pBot.bot_say_msg) * RANDOM_FLOAT2(0.2, 0.3);
+         // queue it: reaction time, then typing, behind any other bot's message
+         BotChatSchedule(pBot, 0.5, 1.0);
       }
    }
 }
 
+
+static void BotChatJoinGreeting(bot_t &pBot);
 
 // just say something
 void BotChatTalk(bot_t &pBot)
@@ -638,11 +740,18 @@ void BotChatTalk(bot_t &pBot)
 
    edict_t *pEdict = pBot.pEdict;
 
+   // SGTC: the once-per-spawn hello for a person already in the game
+   BotChatJoinGreeting(pBot);
+
+   if (pBot.b_bot_say && pBot.f_bot_say >= gpGlobals->time)
+      return;
+
    if ((bot_chat_count > 0) && (pBot.f_bot_chat_time < gpGlobals->time))
    {
       if (RANDOM_LONG2(1,100) <= pBot.chat_percent)
       {
-         pBot.f_bot_chat_time = gpGlobals->time + 30.0;
+         // a person says something every few minutes, not every 30 seconds
+         pBot.f_bot_chat_time = gpGlobals->time + RANDOM_FLOAT2(120.0f, 360.0f);
 
          int chat_index = BotChatPickRandom(bot_chat_count, recent_bot_chat);
 
@@ -654,9 +763,8 @@ void BotChatTalk(bot_t &pBot)
 
          BotChatFillInName(pBot.bot_say_msg, sizeof(pBot.bot_say_msg), chat_text, chat_name, chat_name, bot_name);
 
-         // set chat flag and time to chat (typing one character takes 0.2sec) ...
-         pBot.b_bot_say = TRUE;
-         pBot.f_bot_say = gpGlobals->time + RANDOM_FLOAT2(0.5, 1.0) + strlen(pBot.bot_say_msg) * RANDOM_FLOAT2(0.2, 0.3);
+         // queue it: reaction time, then typing, behind any other bot's message
+         BotChatSchedule(pBot, 0.5, 1.0);
       }
    }
 }
@@ -683,8 +791,131 @@ void BotChatEndGame(bot_t &pBot)
 
       BotChatFillInName(pBot.bot_say_msg, sizeof(pBot.bot_say_msg), chat_text, chat_name, chat_name, bot_name);
 
-      // set chat flag and time to chat (typing one character takes 0.2sec) ...
-      pBot.b_bot_say = TRUE;
-      pBot.f_bot_say = gpGlobals->time + RANDOM_FLOAT2(0.3, 2.0) + strlen(pBot.bot_say_msg) * RANDOM_FLOAT2(0.2, 0.3);
+      // queue it: reaction time, then typing, behind any other bot's message
+      BotChatSchedule(pBot, 0.3, 2.0);
    }
+}
+
+
+// SGTC: a bot that spawns while a person is on the server sometimes says hello.
+// Called from BotChatTalk once per spawn.
+static void BotChatJoinGreeting(bot_t &pBot)
+{
+   if (pBot.b_chat_greeted)
+      return;
+
+   if ((gpGlobals->time - pBot.f_bot_spawn_time) < 3.0f)
+      return;
+
+   pBot.b_chat_greeted = TRUE;
+
+   int humans = 0;
+
+   for (int i = 1; i <= gpGlobals->maxClients; i++)
+   {
+      edict_t *pPlayer = INDEXENT(i);
+
+      if (pPlayer && !pPlayer->free && FBitSet(pPlayer->v.flags, FL_CLIENT) &&
+          !FBitSet(pPlayer->v.flags, FL_FAKECLIENT | FL_THIRDPARTYBOT | FL_PROXY))
+         humans++;
+   }
+
+   if (humans > 0 && RANDOM_LONG2(1, 100) <= 25)
+      BotChatSayPersona(pBot, BOT_PERSONA_JOIN, NULL, 2.0f, 8.0f);
+}
+
+
+// SGTC: a person came in. One bot, now and then, says hello to them by name.
+void BotChatHumanJoined(edict_t *human)
+{
+   if (FNullEnt(human))
+      return;
+
+   if (gpGlobals->time < g_chat_next_hear)
+      return;
+
+   if (RANDOM_LONG2(1, 100) > 60)
+      return;
+
+   int pick[32];
+   int n = 0;
+
+   for (int i = 0; i < 32; i++)
+      if (bots[i].is_used && !FNullEnt(bots[i].pEdict) && !(bots[i].b_bot_say && bots[i].f_bot_say >= gpGlobals->time))
+         pick[n++] = i;
+
+   if (n == 0)
+      return;
+
+   g_chat_next_hear = gpGlobals->time + 5.0f;
+
+   BotChatSayPersona(bots[pick[RANDOM_LONG2(0, n - 1)]], BOT_PERSONA_GREET, human, 4.0f, 10.0f);
+}
+
+
+// SGTC: a person said `text` in chat. The bots answer the way people do: a
+// hello gets a hello, a gg gets a gg, thanks gets "np", and a bot that is
+// called by name says something back. One reply per message at most, and not
+// more often than every few seconds, so a room of bots never answers in a chorus.
+//
+// `speaker` NULL stands for a person (sgtc_bot_hear, headless tests).
+void BotChatHear(edict_t *speaker, const char *text)
+{
+   if (!text || !text[0])
+      return;
+
+   if (!FNullEnt(speaker) && FBitSet(speaker->v.flags, FL_FAKECLIENT | FL_THIRDPARTYBOT))
+      return;
+
+   if (gpGlobals->time < g_chat_next_hear)
+      return;
+
+   if (g_chat_next_hear > gpGlobals->time + 60.0f)
+      g_chat_next_hear = 0.0f;
+
+   const int topic = BotPersona_Classify(text, NULL);
+   int named = -1;
+   int pick[32];
+   int n = 0;
+
+   for (int i = 0; i < 32; i++)
+   {
+      if (!bots[i].is_used || FNullEnt(bots[i].pEdict))
+         continue;
+
+      if (bots[i].b_bot_say && bots[i].f_bot_say >= gpGlobals->time)
+         continue;
+
+      if (BotPersona_Classify(text, STRING(bots[i].pEdict->v.netname)) == BOT_PERSONA_TOPIC_NAMED)
+         named = i;
+
+      pick[n++] = i;
+   }
+
+   if (n == 0)
+      return;
+
+   int section = -1;
+   int chance = 100;
+
+   switch (topic)
+   {
+      case BOT_PERSONA_TOPIC_GREET:  section = BOT_PERSONA_GREET;  chance = 70; break;
+      case BOT_PERSONA_TOPIC_GG:     section = BOT_PERSONA_GG;     chance = 70; break;
+      case BOT_PERSONA_TOPIC_THANKS: section = BOT_PERSONA_THANKS; chance = 60; break;
+      default:                       section = BOT_PERSONA_ASKED;  chance = 90; break;
+   }
+
+   // Nobody called out and nothing worth answering.
+   if (named < 0 && topic == BOT_PERSONA_TOPIC_NONE)
+      return;
+
+   if (RANDOM_LONG2(1, 100) > chance)
+      return;
+
+   const int who = (named >= 0) ? named : pick[RANDOM_LONG2(0, n - 1)];
+
+   g_chat_next_hear = gpGlobals->time + 4.0f;
+
+   BotChatSayPersona(bots[who], section, speaker, 1.5f, 5.0f);
 }

@@ -991,35 +991,6 @@ void CSgtcBriefingPanel::Reset( void )
 	m_bBriefingLoaded = false;
 }
 
-// The view's height is fixed in units that do not track the frame at every size.
-// At 640x480 its bottom ran under the OK button, so stop the view above it. Read
-// on Refresh, when the frame has been laid out (not in the constructor).
-void CSgtcBriefingPanel::FitBriefingAboveOk( void )
-{
-	// getAbsExtents is relative in this build, so walk the parents to get screen Y.
-	int iViewTop = 0, iOkTop = 0;
-	int vx, vy, vw, vh, ox, oy, ow, oh;
-	m_pBriefingView->getBounds( vx, vy, vw, vh );
-	m_pOKButton->getBounds( ox, oy, ow, oh );
-	iViewTop = vy;
-	for ( Panel *p = m_pBriefingView->getParent(); p; p = p->getParent() )
-	{
-		int px, py;
-		p->getPos( px, py );
-		iViewTop += py;
-	}
-	iOkTop = oy;
-	for ( Panel *p = m_pOKButton->getParent(); p; p = p->getParent() )
-	{
-		int px, py;
-		p->getPos( px, py );
-		iOkTop += py;
-	}
-	const int iMaxBottom = iOkTop - YRES( 4 );
-	if ( iViewTop + vh > iMaxBottom && iMaxBottom > iViewTop )
-		m_pBriefingView->SetTall( iMaxBottom - iViewTop );
-}
-
 // Mode the briefing is written for: 0 = single player (the client has one
 // slot), 2 = Deathmatch (GameMode byte 2, sent by CStargateTeamDM), 1 = any
 // other multiplayer mode.
@@ -1080,6 +1051,35 @@ static char *SgtcBriefing_ModeText( int iMode, const char *pszBody )
 	}
 	*pszWrite = 0;
 	return pszOut;
+}
+
+// The view's height is fixed in units that do not track the frame at every size.
+// At 640x480 its bottom ran under the OK button, so stop the view above it. Read
+// on Refresh, when the frame has been laid out (not in the constructor).
+void CSgtcBriefingPanel::FitBriefingAboveOk( void )
+{
+	// getAbsExtents is relative in this build, so walk the parents to get screen Y.
+	int iViewTop = 0, iOkTop = 0;
+	int vx, vy, vw, vh, ox, oy, ow, oh;
+	m_pBriefingView->getBounds( vx, vy, vw, vh );
+	m_pOKButton->getBounds( ox, oy, ow, oh );
+	iViewTop = vy;
+	for ( Panel *p = m_pBriefingView->getParent(); p; p = p->getParent() )
+	{
+		int px, py;
+		p->getPos( px, py );
+		iViewTop += py;
+	}
+	iOkTop = oy;
+	for ( Panel *p = m_pOKButton->getParent(); p; p = p->getParent() )
+	{
+		int px, py;
+		p->getPos( px, py );
+		iOkTop += py;
+	}
+	const int iMaxBottom = iOkTop - YRES( 4 );
+	if ( iViewTop + vh > iMaxBottom && iMaxBottom > iViewTop )
+		m_pBriefingView->SetTall( iMaxBottom - iViewTop );
 }
 
 void CSgtcBriefingPanel::Refresh( void )
