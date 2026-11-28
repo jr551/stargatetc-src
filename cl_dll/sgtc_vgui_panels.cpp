@@ -79,6 +79,11 @@
 
 #include "vgui_int.h"
 #include "vgui_TeamFortressViewport.h"
+#include "vgui_scrollbar2.h"
+#include "vgui_slider2.h"
+#include <VGUI_IntChangeSignal.h>
+#include "vgui_loadtga.h"
+#include "sgtc_vgui_button.h"
 #include "l10n.h"
 #include "demo_api.h"
 #include <VGUI_TextImage.h>		// gEngfuncs.pDemoAPI->IsPlayingback()
@@ -87,6 +92,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <string>
+#include <vector>
 #include <typeinfo>
 
 // ---------------------------------------------------------------------------
@@ -98,6 +105,23 @@
 static char *SgtcPanels_LoadFile( const char *pszFile )
 {
 	return (char *)gEngfuncs.COM_LoadFile( (char *)pszFile, 5, NULL );
+}
+
+// Layout scale for the SGTC menus (menus 5, 10, 11). XRES/YRES map a 640x480
+// design onto each axis separately, so on a 16:10 screen (1280x800, the Steam
+// Deck) every box came out about 20% wider than it was designed. SgtcLayout_S
+// scales both axes by one factor instead: 1.0 at 1280x800, clamped to 0.5..1.5.
+int SgtcLayout_S( int v )
+{
+	float fScale = (float)ScreenWidth / 1280.0f;
+	const float fScaleH = (float)ScreenHeight / 800.0f;
+	if ( fScaleH < fScale )
+		fScale = fScaleH;
+	if ( fScale < 0.5f )
+		fScale = 0.5f;
+	if ( fScale > 1.5f )
+		fScale = 1.5f;
+	return (int)( (float)v * fScale + 0.5f );
 }
 
 // Show a SGTC panel through the real viewport, the same way
@@ -486,6 +510,257 @@ void SgtcWepSel_Refresh( void )
 //============================================================================
 // Menu 10 — briefing/objective window (ref FUN_1003f640 / FUN_100404a0)
 //============================================================================
+// Scrollable briefing text on the game's own ScrollBar2/Slider2 (the same pair
+// the listbox uses). freevgui's ScrollPanel drags through Slider, which reads the
+// cursor via App::getCursorPos; in this build that dereferences an empty surface
+// list and crashes.
+//
+// Children are not clipped in this VGUI, so the text is laid out as one Label per
+// wrapped line, and only the lines that fit fully inside the window are shown.
+// Lines are word-wrapped to the visible width, so no horizontal bar is needed.
+class CSgtcBriefingView : public Panel
+{
+public:
+	CSgtcBriefingView( int x, int y, int wide, int tall );
+
+	void SetStyle( vgui::Font *pFont, int r, int g, int b );
+	void SetTall( int tall );		// shorten/grow the view and re-lay out its text
+	void SetText( const char *pszText );
+	void Layout( void );		// rewrap at the current width and set the scroll range
+	void ScrollTo( int value );	// pixel offset of the text
+
+private:
+	class ScrollSignal : public IntChangeSignal
+	{
+	public:
+		void intChanged( int value, Panel *panel ) { m_pView->ScrollTo( value ); }
+		CSgtcBriefingView *m_pView;
+	};
+
+	void WrapInto( const char *pszPara, int maxWide, std::vector<std::string> &out );
+	static bool IsRuleLine( const std::string &text );
+	std::string CutToWidth( const std::string &text, int maxWide );
+	int TextWide( const char *pszText );
+
+	vgui::Font	*m_pFont;
+	int		m_iR, m_iG, m_iB;
+	std::string	m_Text;
+	std::vector<std::string> m_Lines;
+	std::vector<Label *> m_Labels;
+	Slider2		*m_pSlider;
+	ScrollBar2	*m_pScroll;
+	ScrollSignal	m_Signal;
+	int		m_iScrollBarWide;
+	int		m_iLineTall;
+	int		m_iViewWide;
+	int		m_iViewTall;
+};
+
+CSgtcBriefingView::CSgtcBriefingView( int x, int y, int wide, int tall ) : Panel( x, y, wide, tall )
+{
+	m_pFont = NULL;
+	m_iR = m_iG = m_iB = 255;
+	setPaintBackgroundEnabled( false );
+	setPaintBorderEnabled( false );
+	m_iScrollBarWide = XRES( 16 );
+	m_iLineTall = 1;
+	m_iViewWide = wide - m_iScrollBarWide;
+	m_iViewTall = tall;
+
+	m_pSlider = new Slider2( 0, 0, 10, 40, true );
+	m_pSlider->setRangeWindowEnabled( false );
+
+	m_pScroll = new ScrollBar2( wide - m_iScrollBarWide, 0, m_iScrollBarWide, tall, true );
+	m_pScroll->setParent( this );
+	m_pScroll->setSlider( m_pSlider );
+	m_pScroll->addIntChangeSignal( &m_Signal );
+	m_pScroll->setButtonPressedScrollValue( YRES( 16 ) );
+
+	m_Signal.m_pView = this;
+}
+
+void CSgtcBriefingView::SetStyle( vgui::Font *pFont, int r, int g, int b )
+{
+	m_pFont = pFont;
+	m_iR = r;
+	m_iG = g;
+	m_iB = b;
+}
+
+void CSgtcBriefingView::SetText( const char *pszText )
+{
+	m_Text = pszText ? pszText : "";
+	Layout();
+}
+
+int CSgtcBriefingView::TextWide( const char *pszText )
+{
+	int w = 0, h = 0;
+	if ( m_pFont )
+		m_pFont->getTextSize( pszText, w, h );
+	return w;
+}
+
+// Greedy word wrap of one paragraph (no newlines) to maxWide pixels. A single
+// word wider than the line is broken character by character.
+void CSgtcBriefingView::WrapInto( const char *pszPara, int maxWide, std::vector<std::string> &out )
+{
+	std::string para( pszPara );
+	std::string cur;
+	size_t pos = 0;
+	while ( pos <= para.size() )
+	{
+		size_t end = para.find( ' ', pos );
+		if ( end == std::string::npos )
+			end = para.size();
+		std::string word = para.substr( pos, end - pos );
+		pos = end + 1;
+		if ( word.empty() )
+			continue;
+
+		std::string cand = cur.empty() ? word : cur + " " + word;
+		if ( TextWide( cand.c_str() ) <= maxWide )
+		{
+			cur = cand;
+			continue;
+		}
+		if ( !cur.empty() )
+		{
+			out.push_back( cur );
+			cur.clear();
+		}
+		// Word alone: break it where it stops fitting.
+		std::string piece;
+		for ( size_t i = 0; i < word.size(); ++i )
+		{
+			std::string test = piece + word[i];
+			if ( !piece.empty() && TextWide( test.c_str() ) > maxWide )
+			{
+				out.push_back( piece );
+				piece.clear();
+			}
+			piece += word[i];
+		}
+		cur = piece;
+	}
+	out.push_back( cur );
+}
+
+void CSgtcBriefingView::SetTall( int tall )
+{
+	int x, y, wide, cur;
+	getBounds( x, y, wide, cur );
+	setBounds( x, y, wide, tall );
+	m_pScroll->setBounds( wide - m_iScrollBarWide, 0, m_iScrollBarWide, tall );
+	m_iViewTall = tall;
+	Layout();
+}
+
+// A rule is a line of dashes only (the briefing's separators). Wrapping one
+// splits the dashes onto a second row, so it is cut to the width instead.
+bool CSgtcBriefingView::IsRuleLine( const std::string &text )
+{
+	if ( text.size() < 3 )
+		return false;
+	for ( size_t i = 0; i < text.size(); ++i )
+		if ( text[i] != '-' )
+			return false;
+	return true;
+}
+
+std::string CSgtcBriefingView::CutToWidth( const std::string &text, int maxWide )
+{
+	std::string out;
+	for ( size_t i = 0; i < text.size(); ++i )
+	{
+		std::string test = out + text[i];
+		if ( TextWide( test.c_str() ) > maxWide )
+			break;
+		out = test;
+	}
+	return out;
+}
+
+void CSgtcBriefingView::Layout( void )
+{
+	m_iViewWide = m_iScrollBarWide > 0 ? ( Panel::getWide() - m_iScrollBarWide ) : Panel::getWide();
+	m_iViewTall = Panel::getTall();
+	if ( m_pFont )
+		m_iLineTall = m_pFont->getTall();
+	if ( m_iLineTall < 1 )
+		m_iLineTall = 1;
+
+	// Split on newlines, strip carriage returns, wrap each paragraph.
+	m_Lines.clear();
+	std::string para;
+	for ( size_t i = 0; i <= m_Text.size(); ++i )
+	{
+		char c = ( i < m_Text.size() ) ? m_Text[i] : '\n';
+		if ( c == '\r' )
+			continue;
+		if ( c == '\n' )
+		{
+			if ( para.empty() )
+				m_Lines.push_back( "" );
+			else if ( IsRuleLine( para ) )
+				m_Lines.push_back( CutToWidth( para, m_iViewWide ) );
+			else
+				WrapInto( para.c_str(), m_iViewWide, m_Lines );
+			para.clear();
+			continue;
+		}
+		para += c;
+	}
+
+	// Reuse labels; add more as needed and hide the extra ones.
+	while ( m_Labels.size() < m_Lines.size() )
+	{
+		Label *pLabel = new Label( "", 0, 0, m_iViewWide, m_iLineTall );
+		pLabel->setParent( this );
+		pLabel->setContentAlignment( Label::a_west );
+		pLabel->setPaintBackgroundEnabled( false );
+		pLabel->setPaintBorderEnabled( false );
+		m_Labels.push_back( pLabel );
+	}
+	for ( size_t i = 0; i < m_Labels.size(); ++i )
+	{
+		Label *pLabel = m_Labels[i];
+		if ( i < m_Lines.size() )
+		{
+			if ( m_pFont )
+				pLabel->setFont( m_pFont );
+			pLabel->setFgColor( m_iR, m_iG, m_iB, 0 );
+			pLabel->setText( "%s", m_Lines[i].c_str() );
+		}
+		else
+		{
+			pLabel->setText( "" );
+		}
+	}
+
+	int range = (int)m_Lines.size() * m_iLineTall - m_iViewTall;
+	if ( range < 0 )
+		range = 0;
+	m_pScroll->setRange( 0, range );
+
+	int value = m_pScroll->getValue();
+	if ( value > range )
+		value = range;
+	ScrollTo( value );
+}
+
+void CSgtcBriefingView::ScrollTo( int value )
+{
+	for ( size_t i = 0; i < m_Labels.size(); ++i )
+	{
+		Label *pLabel = m_Labels[i];
+		const int y = (int)i * m_iLineTall - value;
+		const bool bShow = i < m_Lines.size() && y >= 0 && y + m_iLineTall <= m_iViewTall;
+		pLabel->setBounds( 0, y, m_iViewWide, m_iLineTall );
+		pLabel->setVisible( bShow );
+	}
+}
+
 class CSgtcBriefingPanel : public CMenuPanel
 {
 public:
@@ -496,13 +771,13 @@ public:
 
 private:
 	void Refresh( void );
+	void FitBriefingAboveOk( void );
 
 	CTransparentPanel *m_pWindow;
 	Label *m_pTitle;
 	Label *m_pServerName;
 	Label *m_pMapName;
-	CTFScrollPanel *m_pScrollPanel;
-	TextPanel *m_pBriefing;
+	CSgtcBriefingView *m_pBriefingView;
 	CommandButton *m_pOKButton;
 	bool m_bBriefingLoaded;
 	int m_iBriefingMode;	// SgtcBriefing_ModeId() the cached text was built for
@@ -518,22 +793,40 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	SchemeHandle_t hBriefingText = pSchemes->getSchemeHandle( "Briefing Text" );
 	int r, g, b, a;
 
-	// Background TextPanel + LineBorder (ref +0xf8: 0x15,0x15, W-0x2a, H-0x3c).
-	// The ref passes &DAT_100e126c as the panel colour; that object is in BSS,
-	// its only reference is this ctor (xrefs 0x100e126c -> 0x1003f715) and
+	// Layout (layout pixels, see SgtcLayout_S). The frame fills the screen with a
+	// 21 px margin; the banner sits at its top; the text window is centred below
+	// the banner; the OK button sits inside the frame, above its bottom edge (the
+	// earlier 200x28 button straddled the frame's bottom border).
+	const int iFrameX = SgtcLayout_S( 21 );
+	const int iFrameY = SgtcLayout_S( 21 );
+	const int iFrameW = ScreenWidth - 2 * iFrameX;
+	const int iFrameH = ScreenHeight - 2 * iFrameY;
+	const int iBannerY = iFrameY + SgtcLayout_S( 14 );
+	const int iBannerBottom = iBannerY + 104;	// 1024_title.tga is 400x104, native size
+	const int iOkW = SgtcLayout_S( 200 );
+	const int iOkH = SgtcLayout_S( 40 );
+	const int iOkY = iFrameY + iFrameH - SgtcLayout_S( 16 ) - iOkH;
+	int iInnerW = iFrameW - 2 * SgtcLayout_S( 40 );
+	if ( iInnerW > SgtcLayout_S( 1000 ) )
+		iInnerW = SgtcLayout_S( 1000 );	// a readable line length, centred
+	const int iInnerX = ( ScreenWidth - iInnerW ) / 2;
+	const int iInnerY = iBannerBottom + SgtcLayout_S( 16 );
+	const int iInnerH = iOkY - SgtcLayout_S( 16 ) - iInnerY;
+	const int iPadIn = SgtcLayout_S( 28 );
+	const int iBriefY = SgtcLayout_S( 96 );
+
+	// Background TextPanel + LineBorder. The ref passes &DAT_100e126c as the
+	// panel colour; that object is in BSS, its only reference is this ctor and
 	// nothing ever writes it, so it is Color(0,0,0,0) = opaque black — the orig
 	// briefing background is black, not the vgui default grey.
-	TextPanel *pBackground = new TextPanel( "", XRES( 21 ), YRES( 21 ),
-		ScreenWidth - XRES( 42 ), ScreenHeight - YRES( 60 ) );
+	TextPanel *pBackground = new TextPanel( "", iFrameX, iFrameY, iFrameW, iFrameH );
 	pBackground->setParent( this );
 	pBackground->setBgColor( 0, 0, 0, 0 );
 	// Ref border colour: Color(0,0,0xff,0) = solid blue (asm @0x1003f943).
 	pBackground->setBorder( new LineBorder( Color( 0, 0, 255, 0 ) ) );
 
-	// Inner window (ref +0xdc) with its own LineBorder — ctor asm @0x1003f855:
-	// X(40), Y(40)+0x5a, X(560), Y(0x1009be28=360)-0x32. Same blue border.
-	m_pWindow = new CTransparentPanel( 255, XRES( 40 ), YRES( 40 ) + 90,
-		XRES( 560 ), YRES( 360 ) - 50 );
+	// Inner window (ref +0xdc) with its own LineBorder, centred in the frame.
+	m_pWindow = new CTransparentPanel( 255, iInnerX, iInnerY, iInnerW, iInnerH );
 	m_pWindow->setParent( this );
 	m_pWindow->setBorder( new LineBorder( Color( 0, 0, 255, 0 ) ) );
 
@@ -546,7 +839,7 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	// measured white core 315x44 matches the orig capture exactly). The ref
 	// then parents it, setVisible(true) (asm 0x1003fa43 pushes 1 — the label
 	// is VISIBLE) and setPos(ScreenWidth/2 - 0xc8, 0x23) at asm 0x1003fa5x.
-	m_pTitle = new Label( "", ScreenWidth / 2 - 200, 35 );
+	m_pTitle = new Label( "", ScreenWidth / 2 - 200, iBannerY );
 	m_pTitle->setContentFitted( true );
 	m_pTitle->setImage( LoadTGAForRes( "title" ) );
 	m_pTitle->setParent( this );
@@ -560,14 +853,14 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	// fg 0x55,0x73,0xb9, bg black, content alignment 3. In the SDK enum the mod
 	// was built against that value is Label::a_west (a_northwest=0, a_north,
 	// a_northeast, a_west) — not centred, contrary to the port spec's note.
-	m_pServerName = new Label( "", XRES( 16 ), YRES( 16 ) - 10 );
+	m_pServerName = new Label( "", iPadIn, SgtcLayout_S( 14 ) );
 	m_pServerName->setParent( m_pWindow );
 	m_pServerName->setFont( pSchemes->getFont( hTitleScheme ) );
 	m_pServerName->setFgColor( 0x55, 0x73, 0xb9, 0 );
 	m_pServerName->setBgColor( 0, 0, 0, 0xff );
 	m_pServerName->setContentAlignment( vgui::Label::a_west );
 
-	m_pMapName = new Label( "", XRES( 16 ), YRES( 16 ) + 40 );
+	m_pMapName = new Label( "", iPadIn, SgtcLayout_S( 54 ) );
 	m_pMapName->setParent( m_pWindow );
 	m_pMapName->setFont( pSchemes->getFont( hTitleScheme ) );
 	m_pMapName->setFgColor( 0x55, 0x73, 0xb9, 0 );
@@ -590,50 +883,37 @@ CSgtcBriefingPanel::CSgtcBriefingPanel( int iTrans, int iRemoveMe, int x, int y,
 	// orig panel shows the vertical bar on the right and the horizontal bar at
 	// the bottom of the text area, even though the ctor calls
 	// setScrollBarVisible(0,0).
-	const int iScrollWide = XRES( 560 ) - 2 * XRES( 16 );
-	const int iScrollTall = YRES( 296 ) - 90;
+	const int iScrollWide = iInnerW - 2 * iPadIn;
+	const int iScrollTall = iInnerH - iBriefY - SgtcLayout_S( 16 );
 
-	m_pScrollPanel = new CTFScrollPanel( XRES( 16 ), YRES( 48 ) + 45, iScrollWide, iScrollTall );
-	m_pScrollPanel->setParent( m_pWindow );
-	m_pScrollPanel->setScrollBarVisible( false, false );
-	m_pScrollPanel->setScrollBarAutoVisible( false, false );	// kill the auto thick gold bar
+	m_pBriefingView = new CSgtcBriefingView( iPadIn, iBriefY, iScrollWide, iScrollTall );
+	m_pBriefingView->setParent( m_pWindow );
 
-	m_pBriefing = new TextPanel( "", 0, 45, XRES( 560 ) - XRES( 16 ), YRES( 296 ) - 90 );
-	m_pBriefing->setParent( m_pScrollPanel->getClient() );
-	m_pBriefing->setFont( pSchemes->getFont( hBriefingText ) );
-	m_pBriefing->setFgColor( 0x55, 0x73, 0xb9, 0 );
+	m_pBriefingView->SetStyle( pSchemes->getFont( hBriefingText ), 0x55, 0x73, 0xb9 );
 	pSchemes->getBgColor( hBriefingText, r, g, b, a );
-	m_pBriefing->setBgColor( r, g, b, a );
-	m_pBriefing->setText( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#objectif_manquant" ) ) );
+	m_pBriefingView->SetText( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#objectif_manquant" ) ) );
 
 	// OK button (ref +0xd4, localised "#Ok", close handler id 0xb). The ref
 	// builds two variants (asm @0x100400b5): W < 0x400 (low-res) uses
 	// x=X(320)-X(62), y=H-Y(40)-Y(12)+5, w=X(124), h=Y(24)-10; the wide variant
 	// uses y=H-Y(40)-Y(12), h=Y(24) with the same x/w.
-	const int iOkX = XRES( 320 ) - XRES( 62 );
-	const int iOkW = XRES( 124 );
-	int iOkY;
-	int iOkH;
-	if ( ScreenWidth < 0x400 )
-	{
-		iOkY = ScreenHeight - YRES( 40 ) - YRES( 12 ) + 5;
-		iOkH = YRES( 24 ) - 10;
-	}
-	else
-	{
-		iOkY = ScreenHeight - YRES( 40 ) - YRES( 12 );
-		iOkH = YRES( 24 );
-	}
+	// OK button (layout geometry above): centred inside the frame. The label uses
+	// the title font (set below) and no key prefix, so it is centred as well.
+	const int iOkX = ( ScreenWidth - iOkW ) / 2;
 
-	m_pOKButton = new CommandButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Ok" ) ),
+	m_pOKButton = new CSgtcMenuButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Ok" ) ),
 		iOkX, iOkY, iOkW, iOkH );
 	m_pOKButton->setParent( this );
+	m_pOKButton->setFont( pSchemes->getFont( hBriefingText ) );
+	m_pOKButton->setBoundKey( (char)255 );
+	m_pOKButton->setContentAlignment( vgui::Label::a_center );
 	m_pOKButton->addActionSignal( new CSgtcHandler_DismissMenu() );
+
 
 	m_bBriefingLoaded = false;
 	m_iBriefingMode = -1;
 
-	m_pScrollPanel->validate();
+	m_pBriefingView->Layout();
 }
 
 void CSgtcBriefingPanel::Open( void )
@@ -711,8 +991,38 @@ static char *SgtcBriefing_ModeText( int iMode, const char *pszBody )
 	return pszOut;
 }
 
+// The view's height is fixed in units that do not track the frame at every size.
+// At 640x480 its bottom ran under the OK button, so stop the view above it. Read
+// on Refresh, when the frame has been laid out (not in the constructor).
+void CSgtcBriefingPanel::FitBriefingAboveOk( void )
+{
+	// getAbsExtents is relative in this build, so walk the parents to get screen Y.
+	int iViewTop = 0, iOkTop = 0;
+	int vx, vy, vw, vh, ox, oy, ow, oh;
+	m_pBriefingView->getBounds( vx, vy, vw, vh );
+	m_pOKButton->getBounds( ox, oy, ow, oh );
+	iViewTop = vy;
+	for ( Panel *p = m_pBriefingView->getParent(); p; p = p->getParent() )
+	{
+		int px, py;
+		p->getPos( px, py );
+		iViewTop += py;
+	}
+	iOkTop = oy;
+	for ( Panel *p = m_pOKButton->getParent(); p; p = p->getParent() )
+	{
+		int px, py;
+		p->getPos( px, py );
+		iOkTop += py;
+	}
+	const int iMaxBottom = iOkTop - YRES( 4 );
+	if ( iViewTop + vh > iMaxBottom && iMaxBottom > iViewTop )
+		m_pBriefingView->SetTall( iMaxBottom - iViewTop );
+}
+
 void CSgtcBriefingPanel::Refresh( void )
 {
+	FitBriefingAboveOk();
 	// Server name arrives in the ServerName usermsg (viewport m_szServerName,
 	// MsgFunc_ServerName @0x1004a0a9); the ref fills the label from the same
 	// value (FUN_100404a0 "%s").
@@ -720,7 +1030,7 @@ void CSgtcBriefingPanel::Refresh( void )
 
 	if ( m_bBriefingLoaded && SgtcBriefing_ModeId() == m_iBriefingMode )
 	{
-		m_pScrollPanel->validate();
+		m_pBriefingView->Layout();
 		return;
 	}
 
@@ -757,7 +1067,7 @@ void CSgtcBriefingPanel::Refresh( void )
 		// Missing briefing keeps the localised "#objectif_manquant" default,
 		// like the ref (it only calls setText when COM_LoadFile succeeded).
 		char *pszModeText = SgtcBriefing_ModeText( SgtcBriefing_ModeId(), pfile );
-		m_pBriefing->setText( pszModeText ? pszModeText : pfile );
+		m_pBriefingView->SetText( pszModeText ? pszModeText : pfile );
 		free( pszModeText );
 		gEngfuncs.COM_FreeFile( pfile );
 	}
@@ -769,7 +1079,7 @@ void CSgtcBriefingPanel::Refresh( void )
 			L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#objectif_manquant" ) ) );
 		if ( pszModeText )
 		{
-			m_pBriefing->setText( pszModeText );
+			m_pBriefingView->SetText( pszModeText );
 			free( pszModeText );
 		}
 	}
@@ -778,7 +1088,7 @@ void CSgtcBriefingPanel::Refresh( void )
 
 	// Ref never resizes the text panel; ScrollPanel's auto-visible mode picks up
 	// the overflow on validate().
-	m_pScrollPanel->validate();
+	m_pBriefingView->Layout();
 
 }
 
@@ -840,10 +1150,11 @@ public:
 	Label *m_pPortrait[SGTC_TEAMCLASS_COUNT];
 	CommandButton *m_pTeamButton[SGTC_TEAMCLASS_TEAMS];
 	bool m_bFirstPaint;
+	bool m_bPortraitFits;				// the centre band is tall enough for a portrait
 	CommandButton *m_pCancelButton;
 	CommandButton *m_pAutoButton;
 	CommandButton *m_pSpecButton;
-	TextPanel *m_pFooter;				// info_equipe.txt
+	CSgtcBriefingView *m_pFooter;			// info_equipe.txt
 	char m_szClassInfo[SGTC_TEAMCLASS_COUNT][SGTC_TEAMCLASS_INFO_LEN];
 	int m_iCurrentClass;
 	int m_iCurrentTeam;
@@ -936,6 +1247,70 @@ private:
 };
 
 
+// Layout of the team + class card (menu 11). Every value is in layout pixels
+// (SgtcLayout_S) so the card keeps its proportions at any screen size. The team
+// boxes head the two side columns; the class list (left) and the class blurb
+// (right) fill those columns; the portrait sits in the centre; the credits strip
+// and the three action buttons run along the bottom, on the same column grid.
+// This replaces the reference geometry, which was measured against a 1024x768
+// capture (see git history). Element order, handlers and visibility rules are
+// unchanged.
+#define SGTC_PORTRAIT_SMALL_H	304	// 640-tier portrait, 136x304 (native size)
+#define SGTC_PORTRAIT_BIG_H		480	// 1024-tier portrait, 216x480 (native size)
+
+struct SgtcTeamLayout
+{
+	int iCardX, iCardY, iCardW, iCardH;	// the card, centred on the screen
+	int iPad, iGap;				// inner margin, gap between the columns
+	int iColW, iColC;			// side column width, centre column width
+	int iTitleY, iTitleH;		// title strip
+	int iTeamY, iTeamH;			// team boxes, over the side columns
+	int iContentY, iContentH;	// list / portrait / blurb band
+	int iFootY, iFootH;			// credits strip
+	int iActY, iActH;			// Spectateur | Auto | Annuler row
+	bool bBigArt;				// the band is tall enough for the 216x480 portraits
+	bool bPortraitFits;			// the band is tall enough for a portrait at all
+};
+
+static SgtcTeamLayout SgtcTeam_Layout( void )
+{
+	SgtcTeamLayout L;
+	const int iMaxW = ScreenWidth - 2 * SgtcLayout_S( 20 );
+	const int iMaxH = ScreenHeight - 2 * SgtcLayout_S( 14 );
+	L.iCardW = SgtcLayout_S( 1040 ) < iMaxW ? SgtcLayout_S( 1040 ) : iMaxW;
+	// The card keeps at least 500 px of height on small screens, so the credits
+	// strip and the action row still fit under the team band.
+	int iWantH = SgtcLayout_S( 700 );
+	if ( iWantH < 500 )
+		iWantH = 500;
+	L.iCardH = iWantH < iMaxH ? iWantH : iMaxH;
+	L.iCardX = ( ScreenWidth - L.iCardW ) / 2;
+	L.iCardY = ( ScreenHeight - L.iCardH ) / 2;
+
+	L.iPad = SgtcLayout_S( 32 );
+	L.iGap = SgtcLayout_S( 24 );
+	L.iColW = ( L.iCardW - 2 * L.iPad ) * 35 / 100;
+	L.iColC = L.iCardW - 2 * L.iPad - 2 * L.iColW - 2 * L.iGap;
+
+	L.iTitleY = L.iCardY + SgtcLayout_S( 12 );
+	L.iTitleH = SgtcLayout_S( 34 );
+	L.iTeamY = L.iCardY + SgtcLayout_S( 60 );
+	L.iTeamH = SgtcLayout_S( 44 );
+	L.iContentY = L.iCardY + SgtcLayout_S( 116 );
+
+	L.iActH = SgtcLayout_S( 38 );
+	L.iActY = L.iCardY + L.iCardH - SgtcLayout_S( 14 ) - L.iActH;
+	L.iFootH = SgtcLayout_S( 124 );
+	if ( L.iFootH < 100 )
+		L.iFootH = 100;	// the credits need about six 640-tier lines
+	L.iFootY = L.iActY - SgtcLayout_S( 12 ) - L.iFootH;
+	L.iContentH = L.iFootY - SgtcLayout_S( 14 ) - L.iContentY;
+
+	L.bBigArt = L.iContentH >= SGTC_PORTRAIT_BIG_H + SgtcLayout_S( 12 );
+	L.bPortraitFits = L.iContentH >= ( L.bBigArt ? SGTC_PORTRAIT_BIG_H : SGTC_PORTRAIT_SMALL_H );
+	return L;
+}
+
 CSgtcTeamClassPanel::CSgtcTeamClassPanel( int iTrans, int iRemoveMe, int x, int y, int wide, int tall )
 	: CMenuPanel( iTrans, iRemoveMe, x, y, wide, tall )
 {
@@ -949,48 +1324,61 @@ CSgtcTeamClassPanel::CSgtcTeamClassPanel( int iTrans, int iRemoveMe, int x, int 
 	SchemeHandle_t hBriefingText = pSchemes->getSchemeHandle( "Briefing Text" );
 	int r, g, b, a;
 
-	// Background (ref +0x110: TextPanel 0x15,0x15, W-0x2a, H-0x15 + border).
-	// ASM @0x1002c211: setBgColor(0,0,0x32,0x64) — dark navy translucent,
-	// NOT the opaque black the earlier BSS-misread suggested.
-	TextPanel *pBackground = new TextPanel( "", XRES( 21 ), YRES( 21 ),
-		ScreenWidth - XRES( 42 ), ScreenHeight - YRES( 21 ) );
+	const SgtcTeamLayout L = SgtcTeam_Layout();
+	const int iLeftX = L.iCardX + L.iPad;
+	const int iRightX = L.iCardX + L.iCardW - L.iPad - L.iColW;
+	const int iCentreX = iLeftX + L.iColW + L.iGap;
+	const int iInset = SgtcLayout_S( 12 );
+	m_bPortraitFits = L.bPortraitFits;
+
+	// Colour alpha in this VGUI is transparency: 0 is opaque, 255 is clear. The
+	// original team menu dimmed the whole screen with a 61% navy fill (0x64); the
+	// card is about 80% opaque so its text reads cleanly over the game.
+	TextPanel *pDim = new TextPanel( "", 0, 0, ScreenWidth, ScreenHeight );
+	pDim->setParent( this );
+	pDim->setBgColor( 0, 0, 0x32, 0x64 );
+	TextPanel *pBackground = new TextPanel( "", L.iCardX, L.iCardY, L.iCardW, L.iCardH );
 	pBackground->setParent( this );
-	pBackground->setBgColor( 0, 0, 0x32, 0x64 );
+	pBackground->setBgColor( 0, 0, 0x30, 0x34 );
 	pBackground->setBorder( new LineBorder( Color( 0, 0, 255, 0 ) ) );
 
-	// Title (ref +0x1b0, literal French string, not localised) — ctor asm
-	// @0x1002bfa3: Label(0,0, X(0x100974e0=640), Y(0x100974e8=21)); fg is the
-	// hardcoded periwinkle 0x8c,0x8c,0xf0 (@0x1002c074), not the scheme colour.
-	Label *pTitle = new Label( "", 0, 0, XRES( 640 ), YRES( 21 ) );
+	// Title (ref +0x1b0, literal French string, not localised), centred over the
+	// card. The label keeps no background so it sits on the card fill.
+	Label *pTitle = new Label( "", L.iCardX, L.iTitleY, L.iCardW, L.iTitleH );
 	pTitle->setParent( this );
 	pTitle->setFont( pSchemes->getFont( hTitleScheme ) );
 	pTitle->setFgColor( 0x8c, 0x8c, 0xf0, 0 );
-	pTitle->setBgColor( 0, 0, 0, 0xff );
+	pTitle->setPaintBackgroundEnabled( false );
 	pTitle->setContentAlignment( Label::a_center );
 	pTitle->setText( "%s", "Identifiez-vous" );
 
-	// Ref column geometry (orig orig_class.png measured at 1024x768, units /
-	// 1.6): the big bordered "Tau'ri"/"Goa'uld" box at top is the TEAM BUTTON
-	// (ref +0xd4/+0xd8), a CommandButton; the tall bordered box below is the
-	// team list window (ref +0x114/+0x118) that holds the class cells and is
-	// hidden until the team is hovered.
-	//   team button box = CommandButton(X(127)+i*X(282), Y(42), X(105), Y(40))
-	//   list window     = TextPanel(255, X(21)/X(409), Y(105), X(210), Y(241))
-	const int iWindowWide = XRES( 210 );
-	const int iWindowTall = YRES( 241 );
-	const int iClassWide = XRES( 120 );	// cells are full-width buttons
-	const int iClassTall = YRES( 26 );
-	char *pfile = NULL;
+	// Three opaque black columns on screen from the start: the team list (left,
+	// shown by a team hover), the portrait (centre) and the class blurb (right).
+	// Created before the buttons and the credits, so the buttons win the hit test
+	// and paint on top (see the footer note below).
+	TextPanel *pFrameL = new TextPanel( "", iLeftX, L.iContentY, L.iColW, L.iContentH );
+	pFrameL->setParent( this );
+	pFrameL->setBgColor( 0, 0, 0, 0 );
+	pFrameL->setBorder( new LineBorder( Color( 0, 0, 255, 0 ) ) );
+	TextPanel *pFrameC = new TextPanel( "", iCentreX, L.iContentY, L.iColC, L.iContentH );
+	pFrameC->setParent( this );
+	pFrameC->setBgColor( 0, 0, 0, 0 );
+	pFrameC->setBorder( new LineBorder( Color( 0, 0, 255, 0 ) ) );
+	TextPanel *pFrameR = new TextPanel( "", iRightX, L.iContentY, L.iColW, L.iContentH );
+	pFrameR->setParent( this );
+	pFrameR->setBgColor( 0, 0, 0, 0 );
+	pFrameR->setBorder( new LineBorder( Color( 0, 0, 255, 0 ) ) );
 
-	// Team selector boxes (ref +0xd4/+0xd8) — hover OR click reveals the team.
+	// Team selector boxes (ref +0xd4/+0xd8) head the two side columns, each over
+	// its own column. Hover OR click reveals the team.
 	for ( int iTeam = 0; iTeam < SGTC_TEAMCLASS_TEAMS; iTeam++ )
 	{
-		const int iButtonX = XRES( 127 ) + iTeam * XRES( 282 );
-		m_pTeamButton[iTeam] = new CommandButton(
+		m_pTeamButton[iTeam] = new CSgtcMenuButton(
 			L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString(
 				iTeam == 0 ? "#Torri" : "#Goauld" ) ),
-			iButtonX, YRES( 42 ), XRES( 105 ), YRES( 40 ) );
+			iTeam == 0 ? iLeftX : iRightX, L.iTeamY, L.iColW, L.iTeamH );
 		m_pTeamButton[iTeam]->setParent( this );
+		m_pTeamButton[iTeam]->setBoundKey( (char)255 );	// no key prefix, so the label is centred
 		m_pTeamButton[iTeam]->setContentAlignment( Label::a_center );
 		m_pTeamButton[iTeam]->addActionSignal(
 			new CSgtcHandler_TeamSelect( this, iTeam ) );
@@ -998,36 +1386,35 @@ CSgtcTeamClassPanel::CSgtcTeamClassPanel( int iTrans, int iRemoveMe, int x, int 
 			new CSgtcHandler_TeamOver( this, iTeam ) );
 	}
 
-	// Single shared list window on the left (ref +0x114) + its header label —
-	// the header text and the cells/infos inside swap with the active team.
-	m_pTeamWindow[0] = new CTransparentPanel( 255, XRES( 21 ), YRES( 105 ),
-		iWindowWide, iWindowTall );
+	// Single shared list (ref +0x114) in the left column, with its header and the
+	// team line at its foot. Hidden until a team is hovered (see paintTraverse).
+	m_pTeamWindow[0] = new CTransparentPanel( 255, iLeftX, L.iContentY, L.iColW, L.iContentH );
 	m_pTeamWindow[0]->setParent( this );
 	m_pTeamWindow[0]->setPaintEnabled( true );
 	m_pTeamWindow[0]->setBorder( new LineBorder( Color( 0, 0, 255, 0 ) ) );
 	m_pTeamWindow[1] = NULL;
 
-	m_pTeamHeader[0] = new Label( "", XRES( 21 ) + XRES( 4 ), YRES( 105 ) + YRES( 4 ) );
+	m_pTeamHeader[0] = new Label( "", iLeftX + iInset, L.iContentY + iInset );
 	m_pTeamHeader[0]->setParent( this );
 	m_pTeamHeader[0]->setFont( pSchemes->getFont( hTitleScheme ) );
 	pSchemes->getFgColor( hTitleScheme, r, g, b, a );
 	m_pTeamHeader[0]->setFgColor( r, g, b, a );
+	m_pTeamHeader[0]->setPaintBackgroundEnabled( false );
 	m_pTeamHeader[0]->setText( "%s", L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Torri" ) ) );
 	m_pTeamHeader[1] = NULL;
 
-	// Team info lines share the same slot at the list bottom; the inactive
+	// Team info lines share the same slot at the foot of the list; the inactive
 	// one is toggled off by SetActiveTeam. Both born visible so solveTraverse
 	// reaches them; the first paint() hides team 1's (see m_bFirstPaint).
 	for ( int iTeam = 0; iTeam < SGTC_TEAMCLASS_TEAMS; iTeam++ )
 	{
-		m_pTeamInfo[iTeam] = new TextPanel( "", XRES( 21 ) + XRES( 6 ), YRES( 105 ) + YRES( 214 ),
-			iWindowWide - XRES( 12 ), YRES( 22 ) );
+		m_pTeamInfo[iTeam] = new TextPanel( "", iLeftX + iInset, L.iContentY + L.iContentH - SgtcLayout_S( 40 ),
+			L.iColW - 2 * iInset, SgtcLayout_S( 28 ) );
 		m_pTeamInfo[iTeam]->setParent( this );
 		m_pTeamInfo[iTeam]->setFont( pSchemes->getFont( hBriefingText ) );
-		pSchemes->getFgColor( hBriefingText, r, g, b, a );
-		m_pTeamInfo[iTeam]->setFgColor( r, g, b, a );
+		m_pTeamInfo[iTeam]->setFgColor( 0x55, 0x73, 0xb9, 0 );	// readable on black (scheme blue is not)
 		m_pTeamInfo[iTeam]->setBgColor( 0, 0, 0, 0xff );
-		pfile = SgtcPanels_LoadFile( iTeam == 0 ? "info/sg1.txt" : "info/goauld.txt" );
+		char *pfile = SgtcPanels_LoadFile( iTeam == 0 ? "info/sg1.txt" : "info/goauld.txt" );
 		if ( pfile )
 		{
 			m_pTeamInfo[iTeam]->setText( pfile );
@@ -1035,24 +1422,27 @@ CSgtcTeamClassPanel::CSgtcTeamClassPanel( int iTrans, int iRemoveMe, int x, int 
 		}
 	}
 
-	// Class cells: all 10 born visible at the SAME slot inside the shared
-	// left list — freevgui's solveTraverse only descends into visible
-	// children, so they must be visible for the first solve; paint() then
-	// hides the Goa'uld set before it ever renders. SetActiveTeam toggles.
-	// iClass/5 = team (0 Torri, 1 Goauld).
+	// Class cells: all 10 born visible at the SAME slot inside the shared list —
+	// freevgui's solveTraverse only descends into visible children, so they must be
+	// visible for the first solve; paint() then hides the Goa'uld set before it ever
+	// renders. SetActiveTeam toggles. iClass/5 = team (0 Torri, 1 Goauld).
+	const int iCellRoom = ( L.iContentH - SgtcLayout_S( 60 ) ) / SGTC_TEAMCLASS_PER_TEAM;
+	const int iCellStep = SgtcLayout_S( 46 ) < iCellRoom ? SgtcLayout_S( 46 ) : iCellRoom;
+	const int iCellTall = iCellStep - SgtcLayout_S( 6 );
+	const int iCellW = L.iColW - 2 * iInset;
 	for ( int iClass = 0; iClass < SGTC_TEAMCLASS_COUNT; iClass++ )
 	{
 		const int iTeam = iClass / SGTC_TEAMCLASS_PER_TEAM;	// 0 Torri, 1 Goauld
 		const int iCol = iClass % SGTC_TEAMCLASS_PER_TEAM;
 		char szCommand[MAX_COMMAND_SIZE];
 
-		const int iCellX = XRES( 21 ) + XRES( 45 );
-		const int iCellY = YRES( 105 ) + YRES( 30 ) + iCol * YRES( 40 );
-		m_pClassButton[iClass] = new CommandButton(
+		m_pClassButton[iClass] = new CSgtcMenuButton(
 			L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( s_SgtcClasses[iClass].pszLabel ) ),
-			iCellX, iCellY,
-			iClassWide, iClassTall );
+			iLeftX + iInset, L.iContentY + SgtcLayout_S( 50 ) + iCol * iCellStep,
+			iCellW, iCellTall );
 		m_pClassButton[iClass]->setParent( this );
+		m_pClassButton[iClass]->setBoundKey( (char)255 );	// no key prefix: centred label
+		m_pClassButton[iClass]->setContentAlignment( Label::a_center );
 		// ref signals: a single "classe <class> <team>" command (argv1 = class
 		// slot 1..5, argv2 = team 1 Torri / 2 Goauld — the server's inert
 		// 'jointeam' verb is not used), then close the menu.
@@ -1065,25 +1455,20 @@ CSgtcTeamClassPanel::CSgtcTeamClassPanel( int iTrans, int iRemoveMe, int x, int 
 		// Mouse-over shows the class blurb (ref pcharNode<1>(this, iClass)).
 		m_pClassButton[iClass]->addInputSignal( new CSgtcHandler_ClassOver( this, iClass ) );
 
-		// Per-class info/blurb; parented to the panel (not the clipped window)
-		// and placed in the right-hand column, where the orig draws it
-		// (measured A/B: borders at 654..989 x 168..553 on 1024x768 →
-		// XRES(409), YRES(105), XRES(209), YRES(240)). The old centre-gap
-		// placement sat on top of the class portrait. Only one shows at a
-		// time (SetActiveInfo). BORN VISIBLE — a born-invisible freevgui
-		// child is never solved, so the hide is deferred to the first
-		// paintTraverse (m_bFirstPaint), after the child's first solve.
-		m_pClassInfo[iClass] = new TextPanel( "", XRES( 409 ), YRES( 105 ),
-			XRES( 209 ), YRES( 240 ) );
+		// Per-class blurb in the right column, inside the framed column. BORN
+		// VISIBLE — a born-invisible freevgui child is never solved, so the hide is
+		// deferred to the first paintTraverse (m_bFirstPaint). Only one shows at a
+		// time (SetActiveInfo).
+		m_pClassInfo[iClass] = new TextPanel( "", iRightX + iInset, L.iContentY + iInset,
+			L.iColW - 2 * iInset, L.iContentH - 2 * iInset );
 		m_pClassInfo[iClass]->setParent( this );
 		m_pClassInfo[iClass]->setFont( pSchemes->getFont( hBriefingText ) );
-		pSchemes->getFgColor( hBriefingText, r, g, b, a );
-		m_pClassInfo[iClass]->setFgColor( r, g, b, a );
+		m_pClassInfo[iClass]->setFgColor( 0x55, 0x73, 0xb9, 0 );	// readable on black
 		m_pClassInfo[iClass]->setBgColor( 0, 0, 0, 0xff );
 
 		// Load the class blurb once; missing file keeps the ref's
 		// "fichier absent %s" (with the file name substituted).
-		pfile = SgtcPanels_LoadFile( s_SgtcClasses[iClass].pszInfo );
+		char *pfile = SgtcPanels_LoadFile( s_SgtcClasses[iClass].pszInfo );
 		if ( pfile )
 		{
 			strlcpy( m_szClassInfo[iClass], pfile, SGTC_TEAMCLASS_INFO_LEN );
@@ -1096,74 +1481,69 @@ CSgtcTeamClassPanel::CSgtcTeamClassPanel( int iTrans, int iRemoveMe, int x, int 
 		}
 	}
 
-	// Class portraits (ref +0x188[10]: image-Labels with the class's
-	// gfx/vgui/<res>_<name>.tga, centred in the 136x304 gap at
-	// XRES(252),YRES(42) — ctor asm @0x1002dff7..0x1002e0c1). BORN VISIBLE
-	// like the blurbs: first paintTraverse hides them; born-invisible would
-	// strand them unsolved. SetActiveInfo shows one at a time.
+	// Class portraits (ref +0x188[10]): image Labels centred in the centre column.
+	// The art is the 216x480 1024-tier set when the band is tall enough for it,
+	// otherwise the 136x304 640-tier set. Born visible like the blurbs; SetActiveInfo
+	// shows one at a time.
 	for ( int iClass = 0; iClass < SGTC_TEAMCLASS_COUNT; iClass++ )
 	{
+		char szArt[128];
+		if ( L.bBigArt )
+			snprintf( szArt, sizeof( szArt ), "gfx/vgui/1024_%s.tga", s_SgtcClasses[iClass].pszTga );
+		else
+			snprintf( szArt, sizeof( szArt ), "gfx/vgui/640_%s.tga", s_SgtcClasses[iClass].pszTga );
+
 		m_pPortrait[iClass] = new Label( "" );
 		m_pPortrait[iClass]->setContentFitted( true );
-		m_pPortrait[iClass]->setImage( LoadTGAForRes( s_SgtcClasses[iClass].pszTga ) );
+		m_pPortrait[iClass]->setImage( vgui_LoadTGA( szArt ) );
 		m_pPortrait[iClass]->setPaintBackgroundEnabled( false );
 		m_pPortrait[iClass]->setParent( this );
 		int iPw = 0, iPh = 0;
 		m_pPortrait[iClass]->getSize( iPw, iPh );
 		m_pPortrait[iClass]->setPos(
-			XRES( 252 ) + ( XRES( 136 ) - iPw ) / 2,
-			YRES( 42 ) + ( YRES( 304 ) - iPh ) / 2 );
+			iCentreX + ( L.iColC - iPw ) / 2,
+			L.iContentY + ( L.iContentH - iPh ) / 2 );
 	}
 
-	// Footer panel (ref +0x17c info/equipe.txt, fallback literal).
-	// Ref ctor asm @0x1002cd1f builds it as TextPanel(0, 0, X(640)-2*X(21),
-	// Y(0x10097f74=76)+Y(10)) and parents it to the container at panel+0x144,
-	// which the port does not have — with `this` as the parent the ref (0,0)
-	// origin lands on the title, so the size is taken from the ref and the
-	// origin kept at the previously verified bottom-of-panel position.
-	//
-	// It is created BEFORE the interactive buttons: freevgui's
-	// isWithinTraverse walks children in reverse order (last child gets the
-	// first hit), and this transparent full-width footer overlaps the whole
-	// bottom button strip — created last it swallowed every team/Annuler/
-	// AutoAssign/Spectateur click. Keeping it before the buttons puts it
-	// behind them in both traversal and paint order.
-	m_pFooter = new TextPanel( "", XRES( 40 ), ScreenHeight - YRES( 104 ),
-		ScreenWidth - 2 * XRES( 21 ), YRES( 76 ) + YRES( 10 ) );
+	// Scrollable and word-wrapped like the briefing: a plain TextPanel ran its
+	// long lines past the right edge at 800x600 and 640x480. Transparent, so
+	// the credits sit on the card fill.
+	m_pFooter = new CSgtcBriefingView( L.iCardX + L.iPad, L.iFootY, L.iCardW - 2 * L.iPad, L.iFootH );
 	m_pFooter->setParent( this );
-	m_pFooter->setFont( pSchemes->getFont( hBriefingText ) );
-	pSchemes->getFgColor( hBriefingText, r, g, b, a );
-	m_pFooter->setFgColor( r, g, b, a );
-	pSchemes->getBgColor( hBriefingText, r, g, b, a );
-	m_pFooter->setBgColor( r, g, b, a );
-	m_pFooter->setText( "Stargate TC , B.I.G. & Endolaylith" );
+	// Briefing text colour, not the scheme value (dark blue on the navy card).
+	m_pFooter->SetStyle( pSchemes->getFont( hBriefingText ), 0x55, 0x73, 0xb9 );
+	m_pFooter->SetText( "Stargate TC , B.I.G. & Endolaylith" );
 
-	pfile = SgtcPanels_LoadFile( "info/equipe.txt" );
+	char *pfile = SgtcPanels_LoadFile( "info/equipe.txt" );
 	if ( pfile )
 	{
-		m_pFooter->setText( pfile );
+		m_pFooter->SetText( pfile );
 		gEngfuncs.COM_FreeFile( pfile );
 	}
 
-	// Bottom buttons (ref +0x104 Annuler / +0x10c AutoAssign / +0x108
-	// Spectateur). Orig footer order (orig_class.png): Spectator | Auto Team |
-	// Close, evenly spaced at the bottom. y = ScreenHeight - YRES(33) so the
-	// strip sits at the panel bottom, not floating above the credits.
-	m_pSpecButton = new CommandButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Spectateur" ) ),
-		XRES( 127 ), ScreenHeight - YRES( 33 ), XRES( 105 ), YRES( 28 ) );
+	// Action row (ref +0x104 Annuler / +0x10c AutoAssign / +0x108 Spectateur), one
+	// button under each column: Spectator | Auto Team | Close.
+	m_pSpecButton = new CSgtcMenuButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Spectateur" ) ),
+		iLeftX, L.iActY, L.iColW, L.iActH );
 	m_pSpecButton->setParent( this );
+	m_pSpecButton->setBoundKey( (char)255 );
+	m_pSpecButton->setContentAlignment( Label::a_center );
 	m_pSpecButton->addActionSignal( new CSgtcHandler_JoinMark() );
 	m_pSpecButton->addActionSignal( new CMenuHandler_StringCommand( "spectate", 1 ) );
 
-	m_pAutoButton = new CommandButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#AutoAssign" ) ),
-		XRES( 274 ), ScreenHeight - YRES( 33 ), XRES( 105 ), YRES( 28 ) );
+	m_pAutoButton = new CSgtcMenuButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#AutoAssign" ) ),
+		iCentreX, L.iActY, L.iColC, L.iActH );
 	m_pAutoButton->setParent( this );
+	m_pAutoButton->setBoundKey( (char)255 );
+	m_pAutoButton->setContentAlignment( Label::a_center );
 	m_pAutoButton->addActionSignal( new CSgtcHandler_JoinMark() );
 	m_pAutoButton->addActionSignal( new CMenuHandler_StringCommand( "autopick", 1 ) );
 
-	m_pCancelButton = new CommandButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Annuler" ) ),
-		XRES( 409 ), ScreenHeight - YRES( 33 ), XRES( 105 ), YRES( 28 ) );
+	m_pCancelButton = new CSgtcMenuButton( L10n_ToLegacy( gHUD.m_TextMessage.BufferedLocaliseTextString( "#Annuler" ) ),
+		iRightX, L.iActY, L.iColW, L.iActH );
 	m_pCancelButton->setParent( this );
+	m_pCancelButton->setBoundKey( (char)255 );
+	m_pCancelButton->setContentAlignment( Label::a_center );
 	m_pCancelButton->addActionSignal( new CSgtcHandler_DismissMenu() );
 
 	Reset();
@@ -1265,7 +1645,7 @@ void CSgtcTeamClassPanel::SetActiveInfo( int iInput )
 	for ( int i = 0; i < SGTC_TEAMCLASS_COUNT; i++ )
 	{
 		m_pClassInfo[i]->setVisible( i == iInput );
-		m_pPortrait[i]->setVisible( i == iInput );
+		m_pPortrait[i]->setVisible( m_bPortraitFits && i == iInput );
 	}
 
 	m_pClassInfo[iInput]->setText( m_szClassInfo[iInput] );
@@ -2473,6 +2853,12 @@ static void SgtcPanels_QaPanelCommand( void )
 }
 
 // Registered once from the HUD init path.
+static void SgtcPanels_BriefingCommand( void )
+{
+	// Help menu "map description" button (CreateCustomButton, !MAPBRIEFING).
+	SgtcBriefing_ShowPanel();
+}
+
 void SgtcPanels_RegisterClientCommands( void )
 {
 	static bool s_bRegistered = false;
@@ -2482,6 +2868,7 @@ void SgtcPanels_RegisterClientCommands( void )
 
 	gEngfuncs.pfnAddCommand( "sgtc_loadout_done", SgtcPanels_LoadoutDone );
 	gEngfuncs.pfnAddCommand( "sgtc_panel", SgtcPanels_QaPanelCommand );
+	gEngfuncs.pfnAddCommand( "sgtc_briefing", SgtcPanels_BriefingCommand );
 }
 
 void SgtcPanels_HideAll( void )

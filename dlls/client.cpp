@@ -212,12 +212,37 @@ void ClientPutInServer( edict_t *pEntity )
 	entvars_t *pev = &pEntity->v;
 
 	pPlayer = GetClassPtr( (CBasePlayer *)pev );
+#ifdef BUILD_JK_BOTTI
+	BOOL prepared = FALSE;
+	int preparedTeam = SGTC_TEAM_NONE;
+	int preparedClass = SGTC_CLASS_NONE;
+
+	if( SGTC_Bots_IsBotPlayer( pPlayer ) )
+		SGTC_ResetPlayerOnConnect( pPlayer );
+	prepared = SGTC_Bots_PrepareFirstSpawn( pPlayer );
+	if( prepared )
+	{
+		preparedTeam = pPlayer->m_iSgtcTeam;
+		preparedClass = pPlayer->m_iSgtcPortraitShown;
+	}
+#endif
 	pPlayer->SetCustomDecalFrames( -1 ); // Assume none;
 	pPlayer->SetPrefsFromUserinfo( g_engfuncs.pfnGetInfoKeyBuffer( pEntity ) );
 
 	// Allocate a CBasePlayer for pev, and call spawn
 	pPlayer->Spawn();
 	SGTC_ResetPlayerOnConnect( pPlayer );
+#ifdef BUILD_JK_BOTTI
+	if( prepared )
+	{
+		// Spawn used the prepared team for its spawn point and class model.
+		// Preserve that selection across the generic connect reset; the first
+		// alive bot pass consumes the matching pending loadout.
+		pPlayer->m_iSgtcTeam = preparedTeam;
+		pPlayer->m_iSgtcPortraitShown = preparedClass;
+		pPlayer->m_iSgtcPortraitSel = SGTC_CLASS_NONE;
+	}
+#endif
 
 	// Reset interpolation during first frame
 	pPlayer->pev->effects |= EF_NOINTERP;

@@ -22,6 +22,7 @@
 
 extern cvar_t sgtc_tacdist;
 extern cvar_t sgtc_svcrazy;
+extern entvars_t *g_pevLastInflictor;
 extern cvar_t sgtc_tac_bubble;
 int SGTC_Round_intconstrain( int lo, int hi, int v );
 
@@ -647,7 +648,12 @@ void CSGTCLarve::SuperBounceTouch( CBaseEntity *pOther )
 			pThrower->m_flTalentCooldown = gpGlobals->time + 10.0f;	// ref +0x494
 
 			pVictim->pev->effects |= EF_BRIGHTLIGHT;	// ref pev+0x118 = 0x80
+			// This conversion kill bypasses TakeDamage, so supply its missing
+			// inflictor to death messages and bot telemetry instead of "world".
+			entvars_t *pPrevInflictor = g_pevLastInflictor;
+			g_pevLastInflictor = pev;
 			pVictim->Killed( pThrower->pev, 1 );	// ref @0x10222d
+			g_pevLastInflictor = pPrevInflictor;
 
 			const int iGlowPitch = (int)( flLatchPitch + 0.5f );
 			EMIT_SOUND_DYN( ENT( pThrower->pev ), CHAN_VOICE, "weapons/electro6.wav",

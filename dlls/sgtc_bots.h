@@ -25,7 +25,7 @@ void SGTC_Bots_ServerDeactivate(void);
 // "teammate" for a client team kill); the slot capture strips the
 // weapon_/monster_/func_ prefix exactly as DeathNotice() does. A no-op when
 // victim_index is not a bot.
-void SGTC_Bots_OnPlayerKilled(int victim_index, const char *weapon_name);
+void SGTC_Bots_OnPlayerKilled(int victim_index, const char *weapon_name, int attacker_index);
 
 // Slot-level half of the above, exported with C linkage so tests/stub_engine.c
 // can exercise the same capture the Killed() path uses (not just the resolver).
@@ -86,6 +86,10 @@ int Bot_GetRole(int bot_index);
 // `sgtc_bot_kit` (default 1): bot classes take their spawn loadout through the
 // normal buy rules instead of a direct grant.
 int SGTC_Bots_KitEnabled(void);
+
+// Establish a registered bot's selected team/model/class before Spawn chooses
+// a team-filtered spawn point (#315). Human players are untouched.
+BOOL SGTC_Bots_PrepareFirstSpawn( CBasePlayer *pPlayer );
 
 // Fills the bot's gond argument list with the class buy preference for the
 // current team/class, so PlayerSpawn's normal grant (after

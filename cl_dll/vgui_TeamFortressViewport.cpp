@@ -540,9 +540,9 @@ TeamFortressViewport::TeamFortressViewport( int x, int y, int wide, int tall ) :
 		m_SchemeManager.getBgColor( hPrimaryScheme, r, g, b, a );
 		pScheme->setColor( Scheme::sc_primary3, r, g, b, a );
 
-		// armed foreground color
-		m_SchemeManager.getFgArmedColor( hPrimaryScheme, r, g, b, a );
-		pScheme->setColor( Scheme::sc_secondary2, r, g, b, a );
+		// armed foreground color. The scheme value is dark blue, which was hard to
+		// read on the bright blue armed fill; use white for the highlighted label.
+		pScheme->setColor( Scheme::sc_secondary2, 255, 255, 255, 0 );
 
 		// armed background color
 		m_SchemeManager.getBgArmedColor( hPrimaryScheme, r, g, b, a );
@@ -647,6 +647,75 @@ void TeamFortressViewport::Initialize( void )
 }
 
 //-----------------------------------------------------------------------------
+// Command menu label width.
+// Labels are drawn in the CommandMenu Text font after a five-character key
+// prefix ("     " or "  N  "). On the 640 valve sheet the longest label is wider
+// than the CMENU_SIZE_X panel, so it was clipped ("CHANGE WEAPO"). The tree is
+// widened only when a label does not fit; the other tiers keep their layout.
+//-----------------------------------------------------------------------------
+static int CommandMenuTreeWidestLabel( CCommandMenu *pMenu )
+{
+	vgui::Font *pFont = App::getInstance()->getScheme()->getFont( Scheme::sf_primary3 );
+	int iWidest = 0;
+
+	if( !pFont || !pMenu )
+		return 0;
+
+	for( int i = 0; i < pMenu->GetNumButtons(); i++ )
+	{
+		CommandButton *pButton = pMenu->GetButton( i );
+		char szText[MAX_BUTTON_SIZE + 8];
+		int iWide = 0, iTall = 0;
+
+		if( !pButton )
+			continue;
+
+		snprintf( szText, sizeof( szText ), "     %s", pButton->GetMainText() );
+		pFont->getTextSize( szText, iWide, iTall );
+		if( iWide > iWidest )
+			iWidest = iWide;
+
+		if( pButton->GetSubMenu() )
+		{
+			const int iSub = CommandMenuTreeWidestLabel( pButton->GetSubMenu() );
+			if( iSub > iWidest )
+				iWidest = iSub;
+		}
+	}
+
+	return iWidest;
+}
+
+// Widens a menu and its buttons. A submenu is placed at its parent's x plus the
+// parent's width, so each level moves right by depth * delta to stay beside it.
+static void CommandMenuTreeWiden( CCommandMenu *pMenu, int iDepth, int iDelta, int iWide )
+{
+	int iX = 0, iY = 0, iW = 0, iH = 0;
+
+	if( !pMenu )
+		return;
+
+	pMenu->getPos( iX, iY );
+	pMenu->getSize( iW, iH );
+	pMenu->setPos( iX + iDepth * iDelta, iY );
+	pMenu->setSize( iWide, iH );
+
+	for( int i = 0; i < pMenu->GetNumButtons(); i++ )
+	{
+		CommandButton *pButton = pMenu->GetButton( i );
+		if( !pButton )
+			continue;
+
+		int iBW = 0, iBH = 0;
+		pButton->getSize( iBW, iBH );
+		pButton->setSize( iWide, iBH );
+
+		if( pButton->GetSubMenu() )
+			CommandMenuTreeWiden( pButton->GetSubMenu(), iDepth + 1, iDelta, iWide );
+	}
+}
+
+//-----------------------------------------------------------------------------
 // Purpose: Read the Command Menu structure from the txt file and create the menu.
 //			Returns Index of menu in m_pCommandMenus
 //-----------------------------------------------------------------------------
@@ -687,14 +756,14 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 
 		// Now start parsing the menu structure
 		m_pCurrentCommandMenu = m_pCommandMenus[newIndex];
-		char szLastButtonText[32] = "file start";
+		char szLastButtonText[MAX_BUTTON_SIZE] = "file start";
 		char* pfile = gEngfuncs.COM_ParseFile( pFileStart, token );
 		while( ( strlen ( token ) > 0 ) && ( m_iNumMenus < MAX_MENUS ) )
 		{
 			// Keep looping until we hit the end of this menu
 			while( token[0] != '}' && ( strlen( token ) > 0 ) )
 			{
-				char cText[32] = "";
+				char cText[MAX_BUTTON_SIZE] = "";
 				char cBoundKey[32] = "";
 				char cCustom[32] = "";
 				static const int cCommandLength = 128;
@@ -764,7 +833,7 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 
 				// Get the button text
 				pfile = gEngfuncs.COM_ParseFile( pfile, token );
-				strlcpy( cText, L10n_ToLegacy( CHudTextMessage::BufferedLocaliseTextString( token ) ), 32 );	// Vit_amiN: localize button text
+				strlcpy( cText, L10n_ToLegacy( CHudTextMessage::BufferedLocaliseTextString( token ) ), sizeof( cText ));	// Vit_amiN: localize button text
 
 				// save off the last button text we've come across (for error reporting)
 				strcpy( szLastButtonText, cText );
@@ -865,6 +934,22 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 			}
 
 			// Move back up a menu
+			if( !m_pCurrentCommandMenu )
+			{
+				gEngfuncs.Con_Printf( "Unexpected '}' in %s after '%s'.\n", menuFile, szLastButtonText );
+				gEngfuncs.COM_FreeFile( pFileStart );
+				m_iInitialized = false;
+				return newIndex;
+			}
+
+			if( token[0] == '\0' && m_pCurrentCommandMenu != m_pCommandMenus[newIndex] )
+			{
+				gEngfuncs.Con_Printf( "Unexpected end of %s in menu '%s'.\n", menuFile, szLastButtonText );
+				gEngfuncs.COM_FreeFile( pFileStart );
+				m_iInitialized = false;
+				return newIndex;
+			}
+
 			m_pCurrentCommandMenu = m_pCurrentCommandMenu->GetParentMenu();
 
 			pfile = gEngfuncs.COM_ParseFile( pfile, token );
@@ -880,6 +965,18 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 		return newIndex;
 	}
 #endif
+
+	// Fit the tree to its widest label (only widens; see CommandMenuTreeWidestLabel)
+	if( m_pCommandMenus[newIndex] )
+	{
+		int iRootW = 0, iRootH = 0;
+		m_pCommandMenus[newIndex]->getSize( iRootW, iRootH );
+
+		const int iWidest = CommandMenuTreeWidestLabel( m_pCommandMenus[newIndex] );
+		const int iNeeded = iWidest + XRES( 8 );	// right margin after the text
+		if( iNeeded > iRootW )
+			CommandMenuTreeWiden( m_pCommandMenus[newIndex], 0, iNeeded - iRootW, iNeeded );
+	}
 
 	SetCurrentMenu( NULL );
 	SetCurrentCommandMenu( NULL );
@@ -958,6 +1055,15 @@ CommandButton *TeamFortressViewport::CreateCustomButton( char *pButtonText, char
 		pMenu = CreateSubMenu( pButton, m_pCurrentCommandMenu, iYOffset );
 		m_pCommandMenus[m_iNumMenus] = pMenu;
 		m_iNumMenus++;
+	}
+
+	// Map briefing: open the SGTC briefing panel (VGUIMenu 10) through its
+	// registered client command. Without this branch the CUSTOM "!MAPBRIEFING"
+	// entry in the Help menu returned NULL and was dropped without a message.
+	else if( !strcmp( pButtonName, "!MAPBRIEFING" ) )
+	{
+		pButton = new CommandButton( pButtonText, 0, iYOffset, CMENU_SIZE_X, BUTTON_SIZE_Y );
+		pButton->addActionSignal( new CMenuHandler_StringCommand( "sgtc_briefing" ) );
 	}
 
 	return pButton;

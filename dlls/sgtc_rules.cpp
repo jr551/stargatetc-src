@@ -425,12 +425,19 @@ void CStargateTeamDM::RecountTeams( BOOL bResendInfo )
 
 const char *CStargateTeamBase::SetDefaultPlayerTeam( CBasePlayer *pPlayer )
 {
-	char *mdls = g_engfuncs.pfnInfoKeyValue(
-		g_engfuncs.pfnGetInfoKeyBuffer( pPlayer->edict() ), "model" );
-	snprintf( pPlayer->m_szTeamName, TEAM_NAME_LENGTH, "%s", mdls );
+	// The model userinfo key is overloaded: it carries a team name before
+	// spawn, then PlayerSpawn replaces it with the class model. Never let that
+	// class model overwrite a team name which is already valid (round resets
+	// and bot respawns call this again after the first spawn).
+	if( !IsValidTeam( pPlayer->m_szTeamName ) )
+	{
+		char *mdls = g_engfuncs.pfnInfoKeyValue(
+			g_engfuncs.pfnGetInfoKeyBuffer( pPlayer->edict() ), "model" );
+		snprintf( pPlayer->m_szTeamName, TEAM_NAME_LENGTH, "%s", mdls );
 
-	if( pPlayer->m_szTeamName[0] == '\0' || !IsValidTeam( pPlayer->m_szTeamName ) )
-		snprintf( pPlayer->m_szTeamName, TEAM_NAME_LENGTH, "%s", TeamWithFewestPlayers() );
+		if( pPlayer->m_szTeamName[0] == '\0' || !IsValidTeam( pPlayer->m_szTeamName ) )
+			snprintf( pPlayer->m_szTeamName, TEAM_NAME_LENGTH, "%s", TeamWithFewestPlayers() );
+	}
 
 	return pPlayer->m_szTeamName;
 }

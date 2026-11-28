@@ -41,6 +41,8 @@ static void SGTC_ZatImpactDLight( const Vector &origin )
 static void SGTC_ZatImpactFx( const Vector &origin )
 {
 	SGTC_TestEntityAlloc( "zat_impact_fx" );
+	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"zat_impact\",\"origin\":[%.1f,%.1f,%.1f]}\n",
+		origin.x, origin.y, origin.z );
 	CSprite *pSpr = CSprite::SpriteCreate( "sprites/zatimpact.spr", origin, TRUE );
 	if( pSpr )
 	{

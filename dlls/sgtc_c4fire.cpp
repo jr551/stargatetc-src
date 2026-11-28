@@ -4,6 +4,7 @@
 #include "cbase.h"
 #include "weapons.h"
 #include "sgtc_c4fire.h"
+#include "sgtc_firepatch.h"
 
 class CC4Fire : public CBaseEntity
 {
@@ -75,13 +76,32 @@ void CC4Fire::Think( void )
 
 void SGTC_FirePatch_Spawn( const Vector &vecOrigin, float flLife, float flScale )
 {
+	static int firePatchCapReports = 0;
+	// The cap decision itself is pure (dlls/sgtc_firepatch.cpp); this
+	// wrapper only counts live fire patches and reads the edict total.
+	int firePatchCount = 0;
+	for( int i = 1; i < gpGlobals->maxEntities && firePatchCount < SGTC_FIREPATCH_MAX_ACTIVE; ++i )
+	{
+		edict_t *pEdict = INDEXENT( i );
+		if( pEdict && !pEdict->free && FClassnameIs( &pEdict->v, "sgtc_c4_fire" ) )
+			++firePatchCount;
+	}
+	if( !SGTC_FirePatch_Allows( firePatchCount, (int)NUMBER_OF_ENTITIES(), gpGlobals->maxEntities ) )
+	{
+		if( firePatchCapReports++ == 0 )
+			UTIL_LogPrintf( "SGTCEVENT {\"event\":\"fire_patch_cap\",\"active\":%d,\"edicts\":%d,\"maxEdicts\":%d}\n",
+				firePatchCount, (int)NUMBER_OF_ENTITIES(), gpGlobals->maxEntities );
+		return;
+	}
+
 	CC4Fire *p = (CC4Fire *)CBaseEntity::Create( "sgtc_c4_fire", vecOrigin, g_vecZero, NULL );
 	if( !p )
 		return;
 	p->m_flEnd = gpGlobals->time + ( flLife > 0.0f ? flLife : 5.0f );
 	p->m_flScale = flScale > 0.0f ? flScale : 12.0f;
-	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"fire_patch\",\"origin\":[%.1f,%.1f,%.1f],\"life\":%.1f}\n",
-		vecOrigin.x, vecOrigin.y, vecOrigin.z, p->m_flEnd - gpGlobals->time );
+	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"fire_patch\",\"origin\":[%.1f,%.1f,%.1f],\"life\":%.1f,\"active\":%d,\"edicts\":%d}\n",
+		vecOrigin.x, vecOrigin.y, vecOrigin.z, p->m_flEnd - gpGlobals->time,
+		firePatchCount + 1, (int)NUMBER_OF_ENTITIES() );
 }
 
 void SGTC_C4Fire_Spawn( const Vector &vecOrigin )

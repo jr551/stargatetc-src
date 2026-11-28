@@ -212,6 +212,7 @@ if(BUILD_JK_BOTTI)
     sgtc_muzzlefx.cpp
     sgtc_c4fire.cpp
 		sgtc_bots_budget.cpp
+		sgtc_firepatch.cpp
 		sgtc_bots_classes.cpp
 		sgtc_bots_classplay.cpp
 		sgtc_bots_events.cpp

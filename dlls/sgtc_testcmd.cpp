@@ -380,6 +380,13 @@ static void cmd_spawn( const char *classname, float flDist );
 static void cmd_freezebolt( void );
 static void cmd_c4drop( void );
 static void cmd_firepatchtest( void );
+static void cmd_firepatchburst( void );
+static void cmd_botzatduel( void );
+static void cmd_botkill( void );
+static void cmd_wepfireall( void );
+static void cmd_grenadethrow( void );
+static void cmd_grenadethrowcheck( void );
+static void cmd_grenadethrowall( void );
 static void cmd_reetoutest( void );
 static void cmd_c4detonate( void );
 static void cmd_hazardenable( const char *pszStateId );
@@ -491,10 +498,12 @@ static void cmd_movebot( const char *pszArgs );
 static void cmd_fakehuman( const char *pszArgs );
 static void cmd_forcecloak( int iSlot, int iOn );
 
-static void SGTC_TestRunToken( const char *pszToken )
+// Returns 1 when pszToken is a token-table command (run with its own argument
+// handling), 0 otherwise. SGTC_TestCommand falls back to run_line on 0.
+static int SGTC_TestRunToken( const char *pszToken )
 {
 	if( !pszToken || !pszToken[0] )
-		return;
+		return 0;
 	if( !strncmp( pszToken, "useent_", 7 ) )
 		cmd_useent( pszToken + 7 );
 	else if( !strncmp( pszToken, "touchent_", 9 ) )
@@ -559,6 +568,20 @@ static void SGTC_TestRunToken( const char *pszToken )
 		cmd_spawn( "big_lance_proj", 120.0f );
 	else if( !strcmp( pszToken, "firepatchtest" ) )
 		cmd_firepatchtest();
+	else if( !strcmp( pszToken, "firepatchburst" ) )
+		cmd_firepatchburst();
+	else if( !strcmp( pszToken, "botzatduel" ) )
+		cmd_botzatduel();
+	else if( !strcmp( pszToken, "botkill" ) )
+		cmd_botkill();
+	else if( !strcmp( pszToken, "wepfireall" ) )
+		cmd_wepfireall();
+	else if( !strcmp( pszToken, "grenadethrow" ) )
+		cmd_grenadethrow();
+	else if( !strcmp( pszToken, "grenadethrowcheck" ) )
+		cmd_grenadethrowcheck();
+	else if( !strcmp( pszToken, "grenadethrowall" ) )
+		cmd_grenadethrowall();
 	else if( !strcmp( pszToken, "c4drop" ) )
 		cmd_c4drop();
 	else if( !strcmp( pszToken, "reetoutest" ) )
@@ -570,7 +593,8 @@ static void SGTC_TestRunToken( const char *pszToken )
 	else if( !strncmp( pszToken, "hazardat_", 10 ) )
 		cmd_hazardat( 0.0f, 0.0f, 0.0f );
 	else
-		SGTC_TestCommand( pszToken );
+		return 0;
+	return 1;
 }
 
 static void cmd_teamtest( void )
@@ -808,6 +832,475 @@ static void cmd_firepatchtest( void )
 	test_out( "SGTCTEST {\"cmd\":\"firepatchtest\",\"origin\":[%.1f,%.1f,%.1f]}", pos.x, pos.y, pos.z );
 }
 
+static void cmd_firepatchburst( void )
+{
+	CBasePlayer *p = SGTC_TestPlayerAt( 1 );
+	if( !p ) { test_out( "SGTCTEST {\"cmd\":\"firepatchburst\",\"player\":0}" ); return; }
+	const Vector pos = p->pev->origin + gpGlobals->v_forward * 96.0f;
+	for( int i = 0; i < 201; ++i )
+		SGTC_FirePatch_Spawn( pos, 3.5f, 7.0f );
+	test_out( "SGTCTEST {\"cmd\":\"firepatchburst\",\"requested\":201,\"origin\":[%.1f,%.1f,%.1f]}",
+		pos.x, pos.y, pos.z );
+}
+
+// Deterministic gameplay repro: real fake-client bots aim and fire their Zat
+// weapon at an opposing bot. Schedule with sgtc_test_repeat_script=botzatduel.
+static void cmd_botzatduel( void )
+{
+	int fired = 0;
+	int shooters = 0, paired = 0, armed = 0;
+	for( int i = 1; i <= gpGlobals->maxClients; ++i )
+	{
+		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
+		if( !pEntity || !pEntity->IsPlayer() || !FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) )
+			continue;
+		CBasePlayer *pShooter = (CBasePlayer *)pEntity;
+		if( !pShooter->IsAlive() || pShooter->IsObserver() )
+			continue;
+		++shooters;
+
+		// SGTC opposition is the SGTC team (m_iSgtcActiveTeam/m_iSgtcTeam),
+		// not pev->team: every bot shares the same pev->team numbering, so
+		// comparing pev->team never finds an opponent.
+		const int shooterTeam = pShooter->m_iSgtcActiveTeam ?
+			pShooter->m_iSgtcActiveTeam : pShooter->m_iSgtcTeam;
+		CBasePlayer *pTarget = NULL;
+		for( int j = 1; j <= gpGlobals->maxClients; ++j )
+		{
+			CBaseEntity *pCandidateEntity = UTIL_PlayerByIndex( j );
+			if( j == i || !pCandidateEntity || !pCandidateEntity->IsPlayer() ||
+				!FBitSet( pCandidateEntity->pev->flags, FL_FAKECLIENT ) ||
+				!pCandidateEntity->IsAlive() )
+				continue;
+			CBasePlayer *pCandidate = (CBasePlayer *)pCandidateEntity;
+			const int candidateTeam = pCandidate->m_iSgtcActiveTeam ?
+				pCandidate->m_iSgtcActiveTeam : pCandidate->m_iSgtcTeam;
+			if( candidateTeam && candidateTeam != shooterTeam )
+			{
+				pTarget = pCandidate;
+				break;
+			}
+		}
+		if( !pTarget )
+			continue;
+		++paired;
+
+		CBasePlayerWeapon *pZat = NULL;
+		for( int slot = 0; slot < MAX_ITEM_TYPES && !pZat; ++slot )
+			for( CBasePlayerItem *pItem = pShooter->m_rgpPlayerItems[slot]; pItem; pItem = pItem->m_pNext )
+				if( FClassnameIs( pItem->pev, "weapon_zat" ) )
+				{
+					pZat = (CBasePlayerWeapon *)pItem;
+					break;
+				}
+		if( !pZat )
+		{
+			pShooter->GiveNamedItem( "weapon_zat" );
+			for( int slot = 0; slot < MAX_ITEM_TYPES && !pZat; ++slot )
+				for( CBasePlayerItem *pItem = pShooter->m_rgpPlayerItems[slot]; pItem; pItem = pItem->m_pNext )
+					if( FClassnameIs( pItem->pev, "weapon_zat" ) )
+					{
+						pZat = (CBasePlayerWeapon *)pItem;
+						break;
+					}
+		}
+		if( !pZat )
+			continue;
+		++armed;
+
+		pShooter->pev->v_angle = UTIL_VecToAngles( pTarget->pev->origin - pShooter->GetGunPosition() );
+		pShooter->pev->angles = pShooter->pev->v_angle;
+		pShooter->pev->fixangle = TRUE;
+		pShooter->SwitchWeapon( pZat );
+		const float before = pZat->m_flNextPrimaryAttack;
+		pZat->PrimaryAttack();
+		if( pZat->m_flNextPrimaryAttack > before )
+		{
+			++fired;
+			UTIL_LogPrintf( "SGTCEVENT {\"event\":\"bot_zat_fire\",\"shooter\":\"%s\",\"target\":\"%s\",\"time\":%.2f}\n",
+				STRING( pShooter->pev->netname ), STRING( pTarget->pev->netname ), gpGlobals->time );
+		}
+	}
+	// Always report, even when nothing fired: a silent zero made a broken
+	// opponent search indistinguishable from a quiet server.
+	test_out( "SGTCTEST {\"cmd\":\"botzatduel\",\"fired\":%d,\"shooters\":%d,\"paired\":%d,\"armed\":%d,\"time\":%.2f}",
+		fired, shooters, paired, armed, gpGlobals->time );
+}
+
+// Kill the first live bot with a lethal hit from the next live bot. This drives
+// the real death path (Killed -> OnPlayerKilled -> respawn) that botzatduel
+// never reaches, because its zat bolts miss. Schedule with a timed script.
+static void cmd_botkill( void )
+{
+	CBasePlayer *pVictim = NULL;
+	CBasePlayer *pAttacker = NULL;
+	for( int i = 1; i <= gpGlobals->maxClients; ++i )
+	{
+		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
+		if( !pEntity || !pEntity->IsPlayer() || !FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) ||
+			!pEntity->IsAlive() )
+			continue;
+		CBasePlayer *pPlayer = (CBasePlayer *)pEntity;
+		if( !pVictim )
+			pVictim = pPlayer;
+		else if( !pAttacker )
+		{
+			pAttacker = pPlayer;
+			break;
+		}
+	}
+	if( !pVictim || !pAttacker )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"botkill\",\"killed\":0,\"bots\":%d}",
+			pVictim ? 1 : 0 );
+		return;
+	}
+	const float hpBefore = pVictim->pev->health;
+	pVictim->TakeDamage( pAttacker->pev, pAttacker->pev, 1000.0f, DMG_BULLET );
+	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"bot_kill\",\"victim\":\"%s\",\"attacker\":\"%s\",\"hp_before\":%.0f,\"alive_after\":%d,\"time\":%.2f}\n",
+		STRING( pVictim->pev->netname ), STRING( pAttacker->pev->netname ),
+		hpBefore, (int)pVictim->IsAlive(), gpGlobals->time );
+	test_out( "SGTCTEST {\"cmd\":\"botkill\",\"killed\":1,\"victim\":\"%s\",\"alive_after\":%d,\"time\":%.2f}",
+		STRING( pVictim->pev->netname ), (int)pVictim->IsAlive(), gpGlobals->time );
+}
+
+// Every weapon class the game registers (LINK_ENTITY_TO_CLASS in dlls/), in one
+// place so the sweep below can give and fire each of them in turn.
+static const char *const s_wepfireClasses[] =
+{
+	"weapon_9mmAR", "weapon_9mmhandgun", "weapon_c4", "weapon_coujaf", "weapon_couteau",
+	"weapon_crossbow", "weapon_crowbar", "weapon_flashbang",
+	"weapon_gacgoa", "weapon_glstaff", "weapon_goaregen", "weapon_handgrenade",
+	"weapon_invis", "weapon_lance", "weapon_larve", "weapon_m16",
+	"weapon_m92s", "weapon_main", "weapon_medic", "weapon_mine", "weapon_mp5",
+	"weapon_mustardgrenade", "weapon_narcogrenade", "weapon_nervegrenade",
+	"weapon_p90", "weapon_psg1", "weapon_reetou", "weapon_rpg", "weapon_satchel",
+	"weapon_shield", "weapon_shotgun", "weapon_smokegrenade", "weapon_spas",
+	"weapon_tacgun", "weapon_usas", "weapon_zat", "weapon_zatarc", "weapon_batsup",
+};
+
+static CBasePlayerWeapon *SGTC_FindWeaponByClass( CBasePlayer *p, const char *pszClass )
+{
+	for( int slot = 0; slot < MAX_ITEM_TYPES; ++slot )
+		for( CBasePlayerItem *pItem = p->m_rgpPlayerItems[slot]; pItem; pItem = pItem->m_pNext )
+			if( FClassnameIs( pItem->pev, pszClass ) )
+				return (CBasePlayerWeapon *)pItem;
+	return NULL;
+}
+
+// Sum of the player's ammo in the weapon's primary and secondary pools.
+static int SGTC_WepAmmoSum( CBasePlayer *p, CBasePlayerWeapon *pWep )
+{
+	int sum = 0;
+	if( pWep->m_iPrimaryAmmoType >= 0 && pWep->m_iPrimaryAmmoType < MAX_AMMO_SLOTS )
+		sum += p->m_rgAmmo[pWep->m_iPrimaryAmmoType];
+	if( pWep->m_iSecondaryAmmoType >= 0 && pWep->m_iSecondaryAmmoType < MAX_AMMO_SLOTS )
+		sum += p->m_rgAmmo[pWep->m_iSecondaryAmmoType];
+	return sum;
+}
+
+// Give every registered weapon class to the first live bot and call its primary
+// and secondary attack directly, so each weapon's own fire code runs once. A
+// begin event is logged before each class, so a crash names the weapon that
+// caused it. Cooldowns are reset before each call so a weapon is not skipped.
+// This is a fire-path smoke test: it does not aim or check damage.
+// The sweep runs across repeated rounds. A weapon that kills its own bot (C4,
+// glstaff) ends the round; the bot respawns, and the next round picks up at the
+// class after it. After the main pass, classes with no primary effect are tried
+// once more in a later round, so weapons with a deploy timer (the knife) get
+// time to become ready. One sweep per server start.
+static int s_wepfireCursor = 0;
+static int s_wepfireGiven = 0, s_wepfirePrimary = 0, s_wepfireSecondary = 0;
+static int s_wepfireNoEffect[64];
+static int s_wepfireNoEffectCount = 0;
+static bool s_wepfireRetryDone = false;
+
+// One class: give it if needed, top up its ammo, fire both attacks, and log the
+// result. Returns false when the weapon could not be given.
+static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *pbPrimary, bool *pbSecondary )
+{
+	*pbPrimary = false;
+	*pbSecondary = false;
+	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_begin\",\"class\":\"%s\",\"time\":%.2f}\n",
+		pszClass, gpGlobals->time );
+
+	CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( pShooter, pszClass );
+	if( !pWep )
+	{
+		pShooter->GiveNamedItem( pszClass );
+		pWep = SGTC_FindWeaponByClass( pShooter, pszClass );
+	}
+	if( !pWep )
+	{
+		UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_result\",\"class\":\"%s\",\"given\":0}\n", pszClass );
+		return false;
+	}
+
+	pShooter->SwitchWeapon( pWep );
+	// Top up the weapon's ammo so an empty magazine or pack cannot hide a
+	// weapon that would otherwise fire.
+	if( pWep->m_iPrimaryAmmoType >= 0 && pWep->m_iPrimaryAmmoType < MAX_AMMO_SLOTS &&
+		pShooter->m_rgAmmo[pWep->m_iPrimaryAmmoType] < 30 )
+		pShooter->m_rgAmmo[pWep->m_iPrimaryAmmoType] = 30;
+	if( pWep->m_iSecondaryAmmoType >= 0 && pWep->m_iSecondaryAmmoType < MAX_AMMO_SLOTS &&
+		pShooter->m_rgAmmo[pWep->m_iSecondaryAmmoType] < 30 )
+		pShooter->m_rgAmmo[pWep->m_iSecondaryAmmoType] = 30;
+	// Glstaff shots drain stamina, and an overdraw hurts the shooter (2x the
+	// shortfall). Refill it so the probe measures the fire path, not that damage.
+	pShooter->m_iStamina = 100;
+	const int clipBefore = pWep->m_iClip;
+
+	// A weapon counts as fired when any effect shows: a cooldown was armed, the
+	// idle timer was set (grenade pin pull, invis toggle), a grenade is pinned,
+	// the clip or ammo changed, or the attack created an entity (bolt, charge).
+	// Each press is checked before the next one clears the cooldown fields, so
+	// the first press's effect is not lost to the second press's reset. Two
+	// presses per attack: some weapons arm a refire gate on the first press and
+	// fire on the second, which is what a held trigger sends.
+	const int entsBefore = NUMBER_OF_ENTITIES();
+	const int ammoBefore = SGTC_WepAmmoSum( pShooter, pWep );
+	bool bArmed = false;
+	for( int press = 0; press < 2; ++press )
+	{
+		pWep->m_flNextPrimaryAttack = 0.0f;
+		pWep->m_flTimeWeaponIdle = 0.0f;
+		pWep->PrimaryAttack();
+		if( pWep->m_flNextPrimaryAttack > 0.0f || pWep->m_flTimeWeaponIdle > 0.0f || pWep->m_flStartThrow > 0.0f )
+			bArmed = true;
+	}
+	const int entsPrimary = NUMBER_OF_ENTITIES() - entsBefore;
+	const bool bPrimary = bArmed || pWep->m_iClip != clipBefore ||
+		SGTC_WepAmmoSum( pShooter, pWep ) != ammoBefore || entsPrimary > 0;
+
+	const int entsSecondaryBefore = NUMBER_OF_ENTITIES();
+	pWep->m_flNextSecondaryAttack = 0.0f;
+	pWep->SecondaryAttack();
+	const bool bSecondary = pWep->m_flNextSecondaryAttack > 0.0f ||
+		NUMBER_OF_ENTITIES() > entsSecondaryBefore;
+
+	*pbPrimary = bPrimary;
+	*pbSecondary = bSecondary;
+	UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_result\",\"class\":\"%s\",\"given\":1,\"primary\":%d,\"secondary\":%d,\"ents_primary\":%d,\"clip_before\":%d,\"clip_after\":%d,\"ammo_idx\":%d,\"ammo_sum\":%d,\"start_throw\":%.2f,\"release_throw\":%.2f}\n",
+		pszClass, bPrimary ? 1 : 0, bSecondary ? 1 : 0, entsPrimary, clipBefore, pWep->m_iClip,
+		pWep->m_iPrimaryAmmoType, SGTC_WepAmmoSum( pShooter, pWep ), pWep->m_flStartThrow, pWep->m_flReleaseThrow );
+	return true;
+}
+
+static CBasePlayer *SGTC_WepFireShooter( void )
+{
+	for( int i = 1; i <= gpGlobals->maxClients; ++i )
+	{
+		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
+		if( pEntity && pEntity->IsPlayer() && FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) &&
+			pEntity->IsAlive() )
+			return (CBasePlayer *)pEntity;
+	}
+	return NULL;
+}
+
+static void cmd_wepfireall( void )
+{
+	const int total = (int)( sizeof( s_wepfireClasses ) / sizeof( s_wepfireClasses[0] ) );
+	if( s_wepfireCursor >= total )
+	{
+		// Retry pass: once, after the main pass, the classes with no primary effect.
+		if( !s_wepfireRetryDone )
+		{
+			CBasePlayer *pRetryShooter = SGTC_WepFireShooter();
+			if( !pRetryShooter )
+			{
+				test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"retry\":0,\"shooter\":0}" );
+				return;
+			}
+			s_wepfireRetryDone = true;
+			int retried = 0, recovered = 0;
+			for( int k = 0; k < s_wepfireNoEffectCount && pRetryShooter->IsAlive(); ++k )
+			{
+				const char *pszClass = s_wepfireClasses[s_wepfireNoEffect[k]];
+				bool bPrimary = false, bSecondary = false;
+				++retried;
+				if( !SGTC_WepFireOne( pRetryShooter, pszClass, &bPrimary, &bSecondary ) )
+					continue;
+				if( bPrimary )
+				{
+					++recovered;
+					++s_wepfirePrimary;
+				}
+				UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_retry\",\"class\":\"%s\",\"primary\":%d,\"time\":%.2f}\n",
+					pszClass, bPrimary ? 1 : 0, gpGlobals->time );
+			}
+			test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"retry\":%d,\"recovered\":%d,\"time\":%.2f}",
+				retried, recovered, gpGlobals->time );
+			return;
+		}
+		test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"done\":1,\"classes\":%d,\"given\":%d,\"primary\":%d,\"secondary\":%d}",
+			total, s_wepfireGiven, s_wepfirePrimary, s_wepfireSecondary );
+		return;
+	}
+
+	CBasePlayer *pShooter = SGTC_WepFireShooter();
+	if( !pShooter )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"shooter\":0,\"cursor\":%d}", s_wepfireCursor );
+		return;
+	}
+
+	int roundGiven = 0, roundPrimary = 0, roundSecondary = 0;
+	bool bKilled = false;
+	while( s_wepfireCursor < total && !bKilled )
+	{
+		const int idx = s_wepfireCursor++;
+		const char *pszClass = s_wepfireClasses[idx];
+		bool bPrimary = false, bSecondary = false;
+		if( !SGTC_WepFireOne( pShooter, pszClass, &bPrimary, &bSecondary ) )
+			continue;
+		++roundGiven;
+		roundPrimary += bPrimary ? 1 : 0;
+		roundSecondary += bSecondary ? 1 : 0;
+		if( !bPrimary && s_wepfireNoEffectCount < 64 )
+			s_wepfireNoEffect[s_wepfireNoEffectCount++] = idx;
+
+		if( !pShooter->IsAlive() )
+		{
+			bKilled = true;
+			UTIL_LogPrintf( "SGTCEVENT {\"event\":\"wepfire_selfkill\",\"class\":\"%s\",\"time\":%.2f}\n",
+				pszClass, gpGlobals->time );
+		}
+	}
+
+	s_wepfireGiven += roundGiven;
+	s_wepfirePrimary += roundPrimary;
+	s_wepfireSecondary += roundSecondary;
+	test_out( "SGTCTEST {\"cmd\":\"wepfireall\",\"cursor\":%d,\"total\":%d,\"round_given\":%d,\"round_primary\":%d,\"round_secondary\":%d,\"self_killed\":%d,\"time\":%.2f}",
+		s_wepfireCursor, total, roundGiven, roundPrimary, roundSecondary, (int)bKilled, gpGlobals->time );
+}
+
+// Throw check for the handgrenade: pin it with the first live bot, then a later
+// command reports whether the grenade was thrown (ammo down, a grenade entity in
+// the world). Release is the bot's own button state, so this may stay pinned.
+static CBasePlayer *s_grenadeShooter = NULL;
+static int s_grenadeAmmoBefore = -1;
+
+static void cmd_grenadethrow( void )
+{
+	CBasePlayer *p = SGTC_WepFireShooter();
+	if( !p )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrow\",\"shooter\":0}" );
+		return;
+	}
+	CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( p, "weapon_handgrenade" );
+	if( !pWep )
+	{
+		p->GiveNamedItem( "weapon_handgrenade" );
+		pWep = SGTC_FindWeaponByClass( p, "weapon_handgrenade" );
+	}
+	if( !pWep )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrow\",\"given\":0}" );
+		return;
+	}
+	p->SwitchWeapon( pWep );
+	p->m_rgAmmo[pWep->m_iPrimaryAmmoType] = 3;
+	s_grenadeShooter = p;
+	s_grenadeAmmoBefore = p->m_rgAmmo[pWep->m_iPrimaryAmmoType];
+	pWep->m_flNextPrimaryAttack = 0.0f;
+	pWep->PrimaryAttack();
+	test_out( "SGTCTEST {\"cmd\":\"grenadethrow\",\"given\":1,\"ammo\":%d,\"start_throw\":%.2f,\"time\":%.2f}",
+		s_grenadeAmmoBefore, pWep->m_flStartThrow, gpGlobals->time );
+}
+
+static void cmd_grenadethrowcheck( void )
+{
+	CBasePlayer *p = s_grenadeShooter;
+	if( !p )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowcheck\",\"shooter\":0}" );
+		return;
+	}
+	CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( p, "weapon_handgrenade" );
+	int nGrenades = 0;
+	CBaseEntity *pEnt = NULL;
+	while( ( pEnt = UTIL_FindEntityByClassname( pEnt, "grenade" ) ) != NULL )
+		++nGrenades;
+	test_out( "SGTCTEST {\"cmd\":\"grenadethrowcheck\",\"ammo_before\":%d,\"ammo_after\":%d,\"start_throw\":%.2f,\"grenades_in_world\":%d,\"alive\":%d,\"time\":%.2f}",
+		s_grenadeAmmoBefore, pWep ? p->m_rgAmmo[pWep->m_iPrimaryAmmoType] : -1,
+		pWep ? pWep->m_flStartThrow : -1.0f, nGrenades, (int)p->IsAlive(), gpGlobals->time );
+}
+
+// Throw check for the other grenade classes, one per repeat round. A round checks
+// the previous pin (ammo used, pin state, entities), then pins the next class.
+// Round length is set by sgtc_test_repeat_interval; keep it >= 3 s so the fuse
+// and the release can finish first.
+static const char *const s_grenadeClasses[] =
+{
+	"weapon_smokegrenade", "weapon_flashbang", "weapon_mustardgrenade",
+	"weapon_narcogrenade", "weapon_nervegrenade", "weapon_gacgoa",
+};
+static int s_gtCursor = 0;
+static int s_gtPending = -1;
+static int s_gtAmmoBefore = 0;
+static int s_gtEntsBefore = 0;
+
+static void cmd_grenadethrowall( void )
+{
+	const int total = (int)( sizeof( s_grenadeClasses ) / sizeof( s_grenadeClasses[0] ) );
+	CBasePlayer *p = SGTC_WepFireShooter();
+	if( !p )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"shooter\":0,\"cursor\":%d}", s_gtCursor );
+		return;
+	}
+
+	if( s_gtPending >= 0 )
+	{
+		const char *pszClass = s_grenadeClasses[s_gtPending];
+		CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( p, pszClass );
+		const int ammoAfter = pWep ? SGTC_WepAmmoSum( p, pWep ) : -1;
+		const float startAfter = pWep ? pWep->m_flStartThrow : -1.0f;
+		const int entsDelta = NUMBER_OF_ENTITIES() - s_gtEntsBefore;
+		const bool bThrown = ammoAfter >= 0 && ammoAfter < s_gtAmmoBefore;
+		UTIL_LogPrintf( "SGTCEVENT {\"event\":\"grenade_result\",\"class\":\"%s\",\"thrown\":%d,\"ammo_before\":%d,\"ammo_after\":%d,\"start_throw\":%.2f,\"ents_delta\":%d,\"time\":%.2f}\n",
+			pszClass, bThrown ? 1 : 0, s_gtAmmoBefore, ammoAfter, startAfter, entsDelta, gpGlobals->time );
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"check\":\"%s\",\"thrown\":%d,\"ammo_before\":%d,\"ammo_after\":%d,\"time\":%.2f}",
+			pszClass, bThrown ? 1 : 0, s_gtAmmoBefore, ammoAfter, gpGlobals->time );
+		s_gtPending = -1;
+	}
+
+	if( s_gtCursor >= total )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"done\":1,\"classes\":%d}", total );
+		return;
+	}
+
+	const int idx = s_gtCursor++;
+	const char *pszClass = s_grenadeClasses[idx];
+	CBasePlayerWeapon *pWep = SGTC_FindWeaponByClass( p, pszClass );
+	if( !pWep )
+	{
+		p->GiveNamedItem( pszClass );
+		pWep = SGTC_FindWeaponByClass( p, pszClass );
+	}
+	if( !pWep )
+	{
+		UTIL_LogPrintf( "SGTCEVENT {\"event\":\"grenade_result\",\"class\":\"%s\",\"given\":0}\n", pszClass );
+		test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"pin\":\"%s\",\"given\":0}", pszClass );
+		return;
+	}
+
+	p->SwitchWeapon( pWep );
+	if( pWep->m_iPrimaryAmmoType >= 0 && pWep->m_iPrimaryAmmoType < MAX_AMMO_SLOTS )
+		p->m_rgAmmo[pWep->m_iPrimaryAmmoType] = 3;
+	s_gtAmmoBefore = SGTC_WepAmmoSum( p, pWep );
+	s_gtEntsBefore = NUMBER_OF_ENTITIES();
+	s_gtPending = idx;
+	pWep->m_flNextPrimaryAttack = 0.0f;
+	pWep->m_flTimeWeaponIdle = 0.0f;
+	pWep->PrimaryAttack();
+	test_out( "SGTCTEST {\"cmd\":\"grenadethrowall\",\"pin\":\"%s\",\"ammo\":%d,\"start_throw\":%.2f,\"time\":%.2f}",
+		pszClass, s_gtAmmoBefore, pWep->m_flStartThrow, gpGlobals->time );
+}
+
 static void cmd_c4count( void )
 {
 	int nFire = 0;
@@ -914,7 +1407,7 @@ void SGTC_TestFrame( void )
 	{
 		s_test_timed_done = TRUE;
 		test_out( "SGTCTEST {\"cmd\":\"timed_script\",\"state\":\"start\",\"script\":\"%s\"}", pTimed->string );
-		SGTC_TestRunToken( pTimed->string );
+		SGTC_TestCommand( pTimed->string );
 		test_out( "SGTCTEST {\"cmd\":\"timed_script\",\"state\":\"done\"}" );
 	}
 	// Second one-shot script (e.g. gate touch after the DHD chain has dialled).
@@ -925,7 +1418,7 @@ void SGTC_TestFrame( void )
 	{
 		s_test_timed2_done = TRUE;
 		test_out( "SGTCTEST {\"cmd\":\"timed2_script\",\"state\":\"start\",\"script\":\"%s\"}", pTimed2->string );
-		SGTC_TestRunToken( pTimed2->string );
+		SGTC_TestCommand( pTimed2->string );
 		test_out( "SGTCTEST {\"cmd\":\"timed2_script\",\"state\":\"done\"}" );
 	}
 	// Third one-shot script (e.g. ring touch after the window closed).
@@ -936,7 +1429,7 @@ void SGTC_TestFrame( void )
 	{
 		s_test_timed3_done = TRUE;
 		test_out( "SGTCTEST {\"cmd\":\"timed3_script\",\"state\":\"start\",\"script\":\"%s\"}", pTimed3->string );
-		SGTC_TestRunToken( pTimed3->string );
+		SGTC_TestCommand( pTimed3->string );
 		test_out( "SGTCTEST {\"cmd\":\"timed3_script\",\"state\":\"done\"}" );
 	}
 	// Frame-accurate trigger touch for narrow map windows (rings.bsp 10 ms):
@@ -993,7 +1486,7 @@ void SGTC_TestFrame( void )
 		{
 			++s_test_repeat_done;
 			test_out( "SGTCTEST {\"cmd\":\"repeat\",\"step\":%d,\"script\":\"%s\"}", s_test_repeat_done, pRep->string );
-			SGTC_TestRunToken( pRep->string );
+			SGTC_TestCommand( pRep->string );
 			const float flInt = ( pRepInt && pRepInt->value > 0.1f ) ? pRepInt->value : 1.0f;
 			s_test_repeat_next = gpGlobals->time + flInt;
 		}
@@ -1477,6 +1970,19 @@ static void run_line( char *line )
 	else test_out( "SGTCTEST {\"cmd\":\"unknown\",\"line\":\"%s\"}", p );
 }
 
+// One ;-separated part: token table first (firepatchburst, movebot_..., etc.),
+// then the space-separated line table. Both the console route and the timed /
+// repeat scripts come through here so the two tables stay reachable from both.
+static void run_part( char *part )
+{
+	while( *part == ' ' || *part == '\t' ) ++part;
+	char *end = part + strlen( part );
+	while( end > part && ( end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r' || end[-1] == '\n' ) ) *--end = 0;
+	if( !*part ) return;
+	if( !SGTC_TestRunToken( part ) )
+		run_line( part );
+}
+
 SGTC_TEST_EXPORT void SGTC_TestCommand( const char *line )
 {
 	if( !line ) return;
@@ -1485,7 +1991,7 @@ SGTC_TEST_EXPORT void SGTC_TestCommand( const char *line )
 	// Allow ; separated commands in one line.
 	char *save = buf;
 	for( char *part = next_tok( &save, ";" ); part; part = next_tok( &save, ";" ) )
-		run_line( part );
+		run_part( part );
 }
 
 void SGTC_TestInit( void )
