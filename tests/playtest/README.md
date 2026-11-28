@@ -97,3 +97,16 @@ cue, the Reetou shot, the coujaf swing). Copy it to `stargatetc/sound_tour.cfg` 
 `exec sound_tour` from the console in a single-player game; it takes about two minutes. On the
 null-sink recording (`docs/weapon-effects-review.md`, "Sound, measured") every step's wav is in
 the output, so a person only has to judge whether each one sounds right.
+
+## Known gaps (not code defects)
+
+- Missing art, so the engine logs `Could not load model` for `models/w_shield.mdl`, `v_shield.mdl`,
+  `p_shield.mdl`, `bigshield.mdl`, `shgen.mdl`, `trapbox.mdl`, `stargatemp.mdl` and
+  `sprites/zatwave.spr`; `weapons/nightstrike.wav`, `flashbang.wav` and `timer.wav` are absent too
+  (the flashbang has a stand-in bang). docs/weapon-effects-review.md records the decision to wait for
+  the asset set.
+- The 640, 800 and 1152 VGUI sheets in the clean-room `valve/` set are uppercase-only with a box for
+  every accented letter ("CR[]DITS"), and their big cells overrun the team menu title at 640x480. The
+  mod's own 1024, 1280 and 1600 sheets are full CP1252 and draw accents correctly.
+- Offscreen runs print `SDL: [Error] No relative mode implementation available` once; that is the
+  offscreen video driver, not the mod.

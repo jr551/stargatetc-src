@@ -1197,6 +1197,11 @@ static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *
 	// Glstaff shots drain stamina, and an overdraw hurts the shooter (2x the
 	// shortfall). Refill it so the probe measures the fire path, not that damage.
 	pShooter->m_iStamina = 100;
+	// A weapon the bot already carried (its own class loadout) can be sitting on an empty
+	// magazine from fighting; the attack then starts a reload and the probe would call a
+	// working weapon dead (the M92S failed this way on 2026-11-28, clip 0 with 60 in reserve).
+	if( pWep->iMaxClip() > 0 && pWep->m_iClip < 1 )
+		pWep->m_iClip = pWep->iMaxClip();
 	const int clipBefore = pWep->m_iClip;
 
 	// A weapon counts as fired when any effect shows: a cooldown was armed, the
@@ -1208,6 +1213,16 @@ static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *
 	// fire on the second, which is what a held trigger sends.
 	const int entsBefore = NUMBER_OF_ENTITIES();
 	const int ammoBefore = SGTC_WepAmmoSum( pShooter, pWep );
+	// The probe measures the weapon's fire path, not the shooter's state. The knife refuses to
+	// swing for a class with the big shield (the first bot can be one, and then the sweep lost the
+	// knife on 2026-11-28), while it is hurt-flashed or just out of a gate, so lift those gates for
+	// the two attacks and put them back after.
+	const char bShieldSaved = pShooter->m_bShieldLarge;
+	const char bHurtSaved = pShooter->m_bHurtInvertFx;
+	const float flGateSaved = pShooter->m_flGateTravel;
+	pShooter->m_bShieldLarge = 0;
+	pShooter->m_bHurtInvertFx = 0;
+	pShooter->m_flGateTravel = 0.0f;
 	bool bArmed = false;
 	for( int press = 0; press < 2; ++press )
 	{
@@ -1226,6 +1241,10 @@ static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *
 	pWep->SecondaryAttack();
 	const bool bSecondary = pWep->m_flNextSecondaryAttack > 0.0f ||
 		NUMBER_OF_ENTITIES() > entsSecondaryBefore;
+
+	pShooter->m_bShieldLarge = bShieldSaved;
+	pShooter->m_bHurtInvertFx = bHurtSaved;
+	pShooter->m_flGateTravel = flGateSaved;
 
 	*pbPrimary = bPrimary;
 	*pbSecondary = bSecondary;
