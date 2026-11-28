@@ -291,7 +291,10 @@ int CCoujaf::Swing( int fFirst )	// ref @0xd4962 (crowbar hull + SGTC latch swin
 			{
 				bTeamLatchSwing = TRUE;
 				SendWeaponAnim( SGTC_FIRE2, 1, 0 );
-				EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/nightstrike.wav", // ref @0xd4e22 chan 3
+				// weapons/nightstrike.wav is not in the payload yet. Until it ships, the coujaf's own
+				// body-hit sample stands in; the real file takes over as soon as it is there.
+				EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM,
+					SGTC_SoundFileExists( "weapons/nightstrike.wav" ) ? "weapons/nightstrike.wav" : "weapons/coujafcorps.wav",	// ref @0xd4e22 chan 3
 					1.0f, kCoujafSwingVolAttn );
 				m_pPlayer->m_iWeaponVolume = 128;
 				m_flNextPrimaryAttack = UTIL_WeaponTimeBase() + kCoujafSwingMissDelay;
