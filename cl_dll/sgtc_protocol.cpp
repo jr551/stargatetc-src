@@ -728,9 +728,13 @@ void EV_SGTC_Reetou( struct event_args_s *args )
 		V_PunchAxis( 0, gEngfuncs.pfnRandomFloat( -2, 2 ) );
 	}
 
-	// The primary was silent on both sides. Everyone hears it, the shooter too.
-	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/reetou.wav",
-		1.0f, 0.8f, 0, 94 + gEngfuncs.pfnRandomLong( 0, 0xf ) );
+	// The shooter already hears this from the viewmodel: v_reetou.mdl plays
+	// weapons/reetou.wav from its tir1 and tir1a sequences (event 5004). Playing it
+	// here as well doubled the shot, louder by half and clipping in the output. The
+	// viewmodel event does not exist for other players, so they get it from here.
+	if( !EV_IsLocal( idx ) )
+		gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/reetou.wav",
+			1.0f, 0.8f, 0, 94 + gEngfuncs.pfnRandomLong( 0, 0xf ) );
 }
 
 // ref 0x1000a10c — reetou2: local anim 3, body R(0,1)
