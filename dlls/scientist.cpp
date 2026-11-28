@@ -837,6 +837,17 @@ void CScientist::SetActivity( Activity newActivity )
 
 	iSequence = LookupActivity( newActivity );
 
+	// The textured Scientist.mdl has no scared walk or run. A scared scientist walks or
+	// runs instead of falling back to the idle pose and standing still.
+	if( iSequence == ACTIVITY_NOT_AVAILABLE )
+	{
+		if( newActivity == ACT_RUN_SCARED )
+			newActivity = ACT_RUN;
+		else if( newActivity == ACT_WALK_SCARED )
+			newActivity = ACT_WALK;
+		iSequence = LookupActivity( newActivity );
+	}
+
 	// Set to the desired anim, or default anim if the desired is not present
 	if( iSequence == ACTIVITY_NOT_AVAILABLE )
 		newActivity = ACT_IDLE;
