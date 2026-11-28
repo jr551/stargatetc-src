@@ -110,6 +110,8 @@ Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashban
 
 43 single-player GUI runs on `70f94f8` (tags `fin-*`, `-nosound`): the 31 primaries and 12 secondaries. All exited 0 and no log shows a signal. The primaries without a receipt are the ones the table already lists: the medic (no target in single player), the mine and the MP5 (stock events are not logged). The secondaries without a receipt are by design: the M16, PSG1 and zatarc zoom, the MP5 click, the invis wall, the P90 silencer and the Tac HUD cycle. `reetou2.sc`, `lance2.sc`, `main2.sc`, the gacgoa throw and the medic self heal each logged one receipt. The primary frames (contact sheet `sheet-fin-primary.png` in the scratch folder) show no whole-view wash: glstaff and zatarc are normal and the shield shows its gold glow. The Torri hand grenade viewmodel crash that the playtest session found (`v_grenadeT.mdl`, fixed on its branch) is not reachable from these runs, because the single-player player is on team 0.
 
+The dedicated-server `wepfireall` sweep was re-run on the build of `ac46c1d` (after the teammate trace and toggle-click changes): 38 classes registered, 31 given, 31 primaries and 11 secondaries fired, 0 self-kills, exit 0.
+
 ## Stock-based classes (no stock file edited)
 
 - **`weapon_handgrenade`** (`dlls/handgrenade.cpp`). The throw cue comes from `dlls/sgtc_throwfx.cpp`, which watches each player's handgrenade ammo once per frame and sends `events/throw.sc` when it drops.
