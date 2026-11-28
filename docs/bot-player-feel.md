@@ -69,6 +69,14 @@ random grey `UTIL_ScreenFade` every tick (`!SGTC_FloatEq( m_flSgtcLatch3fc, flNo
 true for the default latch). The reverse-engineered source needs a look before the tail is
 turned on.
 
+**Update (goal/playtest-fixes, d9c3e12):** the gate is fixed. The re-arm now sits at the end of
+the gated block, so the tail runs every half second and stamina regenerates (a host with stamina
+set to 20 and standing still went 20 -> 105 in 11 s; it stayed 20 before). Moving the line alone
+did bring up the grey fade you describe, so the drug effect now runs only while the +0x3fc
+deadline is in the future (narco gas and `drugs4me` set now + 15; the medic, goaregen, Teal'c and
+zat-touch writes leave it in the past). `tests/playtest/gui_scenarios.py stamina` and
+`check_dedicated.py stamina` cover it. The bots' own regen copy below retires itself as designed.
+
 So the bots copy the regen themselves, using the game's own numbers
 (`SGTC_Stamina_RegenPerTick`), and retire the copy for a bot once they see its stamina
 rising by itself three ticks in a row, which means the game's tick has been fixed.
