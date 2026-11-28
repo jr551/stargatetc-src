@@ -38,6 +38,7 @@
 #include "eventscripts.h"
 #include "ev_hldm.h"
 #include "r_efx.h"
+#include "sgtc_weapons_client.h"
 #include "sgtc_protocol.h"
 #include "sgtc_hud.h"
 #include "sgtc_env.h"
@@ -170,6 +171,8 @@ void SGTC_ClientHUD_VidInit( void )
 	g_ClientEnv.VidInit();	// not on CHud's VidInit list: clears the env particle buffer
 }
 
+void SGTC_MainBeam_Frame( void );
+
 // Called from HUD_Frame (every host frame). The music manager needs a frame
 // hook because HUD_VidInit runs before the engine has parsed the map name; the
 // options panel uses it to close itself when the console is opened.
@@ -177,6 +180,7 @@ void SGTC_ClientHUD_Frame( void )
 {
 	SgtcMusic_Frame();
 	SgtcOptions_Frame();
+	SGTC_MainBeam_Frame();
 }
 
 // Counts the pfnHookUserMsg calls SGTC_ClientProtocol_InitMessages makes: the
@@ -247,7 +251,10 @@ extern "C"
 	X( EV_SGTC_ZatA, "events/zata.sc" ) \
 	X( EV_SGTC_ZatArc, "events/zatarc.sc" ) \
 	X( EV_SGTC_ZatB, "events/zatb.sc" ) \
-	X( EV_SGTC_Zat, "events/zat.sc" )
+	X( EV_SGTC_Zat, "events/zat.sc" ) \
+	X( EV_SGTC_Throw, "events/throw.sc" ) \
+	X( EV_SGTC_Medic, "events/medic.sc" ) \
+	X( EV_SGTC_GoaRegen, "events/goaregen.sc" )
 
 #define X( fn, script ) void fn( struct event_args_s *args );
 SGTC_EV_LIST
@@ -277,6 +284,99 @@ static int *SGTC_TracerCountPtr( int idx )
 static BEAM *g_sgtcBeam;		// ref DAT_100ba5b8 reused as beam handle
 static int g_sgtcP90Silencer;		// ref DAT_100ba67c
 static int g_sgtcBeamStop = 1;		// ref _DAT_100b089c
+
+// Energie primary (weapon_main). The server sends main once when a hold starts
+// and mainc once after the first repeat; nothing is sent while the trigger stays
+// down, and mains on release, holster or idle. So one beam is created on the
+// local player and kept on the aim line by SGTC_MainBeam_Frame until mains.
+// Remote players get only the start sound; the server's dlight and victim beam
+// still show their hits. Look and colour follow the server TE_BEAMPOINTS
+// (sprites/handtir.spr, width 3.0, amplitude 0.09, brightness 128, RGB 255,50,50).
+static BEAM *g_sgtcMainBeam;
+
+void HUD_GetLastOrg( float *org );
+
+// Trace the local aim line from the eye, the same trace the stock egon beam uses.
+static void SGTC_MainBeam_Aim( int idx, float *endpos )
+{
+	vec3_t origin, view_ofs, vecSrc, vecEnd, angles, forward, right, up;
+	pmtrace_t tr;
+
+	HUD_GetLastOrg( origin );
+	VectorClear( view_ofs );
+	gEngfuncs.pEventAPI->EV_LocalPlayerViewheight( view_ofs );
+	VectorAdd( origin, view_ofs, vecSrc );
+
+	gEngfuncs.GetViewAngles( angles );
+	AngleVectors( angles, forward, right, up );
+	VectorMA( vecSrc, 8192.0f, forward, vecEnd );
+
+	gEngfuncs.pEventAPI->EV_SetUpPlayerPrediction( false, true );
+	gEngfuncs.pEventAPI->EV_PushPMStates();
+	gEngfuncs.pEventAPI->EV_SetSolidPlayers( idx - 1 );
+	gEngfuncs.pEventAPI->EV_SetTraceHull( 2 );
+	gEngfuncs.pEventAPI->EV_PlayerTrace( vecSrc, vecEnd, PM_STUDIO_BOX, -1, &tr );
+	gEngfuncs.pEventAPI->EV_PopPMStates();
+
+	VectorCopy( tr.endpos, endpos );
+}
+
+static void SGTC_MainBeam_Start( void )
+{
+	cl_entity_t *pl = gEngfuncs.GetLocalPlayer();
+	vec3_t endpos;
+	int mdl;
+
+	if( g_sgtcMainBeam != NULL || pl == NULL )
+		return;
+
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/handtir.spr" );
+	if( mdl <= 0 )
+		return;
+
+	SGTC_MainBeam_Aim( pl->index, endpos );
+	g_sgtcMainBeam = gEngfuncs.pEfxAPI->R_BeamEntPoint( pl->index | 0x1000, endpos, mdl,
+		99999.0f,	// kept alive by SGTC_MainBeam_Frame, not by life
+		3.0f,		// width
+		0.09f,		// amplitude
+		128.0f,		// brightness
+		0, 0, 20.0f,	// speed, start frame, framerate (texture scroll)
+		255.0f, 50.0f, 50.0f );	// RGB
+}
+
+static void SGTC_MainBeam_Stop( void )
+{
+	if( g_sgtcMainBeam != NULL )
+	{
+		g_sgtcMainBeam->die = 0.0f;
+		g_sgtcMainBeam = NULL;
+	}
+}
+
+// Called once per host frame from SGTC_ClientHUD_Frame. Moves the live beam to
+// the current aim and ends it if the Energie is no longer the active weapon or
+// the local player is dead (no mains event comes in either case).
+void SGTC_MainBeam_Frame( void )
+{
+	cl_entity_t *pl;
+	WEAPON *pWeapon;
+	vec3_t endpos;
+
+	if( g_sgtcMainBeam == NULL )
+		return;
+
+	pl = gEngfuncs.GetLocalPlayer();
+	pWeapon = gHUD.m_Ammo.GetCurrentWeapon();
+	if( pl == NULL || pWeapon == NULL || pWeapon->iId != SGTC_WPN_MAIN || gHUD.m_Health.m_iHealth <= 0 )
+	{
+		SGTC_MainBeam_Stop();
+		return;
+	}
+
+	SGTC_MainBeam_Aim( pl->index, endpos );
+	VectorCopy( endpos, g_sgtcMainBeam->target );
+	g_sgtcMainBeam->die = gEngfuncs.GetClientTime() + 0.1f;	// lapses 0.1 s after the last frame
+}
 
 // Shared fallback for EV_SGTC_Zat only (zat.sc is never hooked by the ref).
 static void SGTC_EventFallback( struct event_args_s *args, int playSound )
@@ -337,18 +437,11 @@ void EV_SGTC_Usas( struct event_args_s *args )
 
 	VectorCopy( forward, vecAiming );
 
-	if( gEngfuncs.GetMaxClients() < 2 )	// single player
-	{
-		EV_HLDM_FireBullets( idx, forward, right, up, 6, vecSrc, vecAiming,
-			2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
-			0.08716f, 0.08716f );
-	}
-	else
-	{
-		EV_HLDM_FireBullets( idx, forward, right, up, 4, vecSrc, vecAiming,
-			2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
-			0.08716f, 0.04362f );
-	}
+	// The server fires 8 pellets, 5 degrees, 1024 units (wpn_usas FireBulletsPlayer).
+	// The client drew 6 or 4 at 2048, so decals landed where no pellet did.
+	EV_HLDM_FireBullets( idx, forward, right, up, 8, vecSrc, vecAiming,
+		1024.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
+		0.08716f, 0.08716f );
 }
 
 // ref 0x1000765b — spas (identical to usas but anim 1)
@@ -387,18 +480,11 @@ void EV_SGTC_Spas( struct event_args_s *args )
 
 	VectorCopy( forward, vecAiming );
 
-	if( gEngfuncs.GetMaxClients() < 2 )
-	{
-		EV_HLDM_FireBullets( idx, forward, right, up, 6, vecSrc, vecAiming,
-			2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
-			0.08716f, 0.08716f );
-	}
-	else
-	{
-		EV_HLDM_FireBullets( idx, forward, right, up, 4, vecSrc, vecAiming,
-			2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
-			0.08716f, 0.04362f );
-	}
+	// The server fires 8 pellets in VECTOR_CONE_DM_SHOTGUN at 2048 units (shotgun.cpp).
+	// The client drew 6 in single player and 4 otherwise, so the decals did not match the pellets.
+	EV_HLDM_FireBullets( idx, forward, right, up, 8, vecSrc, vecAiming,
+		2048.0f, BULLET_PLAYER_BUCKSHOT, 0, SGTC_TracerCountPtr( idx ),
+		0.08716f, 0.04362f );
 }
 
 // ref 0x1000740b — spas2 pump: shell eject only, no sound/muzzle/fire
@@ -505,9 +591,11 @@ void EV_SGTC_M16( struct event_args_s *args )
 	EV_GetDefaultShellInfo( args, origin, velocity, ShellVelocity, ShellOrigin,
 		fwdScaled, right, up, 20.0f, -12.0f, 6.0f );
 
-	// ref scales the shell velocity by (RandomLong(0,4)/10)+0.8
+	// ref scales the shell velocity by (RandomLong(0,4)/10)+0.8, but the ref
+	// divides two ints, so the spread was always 0.8. Divide as float so each
+	// casing leaves at 0.8x, 0.9x, 1.0x, 1.1x or 1.2x its base speed.
 	VectorScale( ShellVelocity,
-		(float)( gEngfuncs.pfnRandomLong( 0, 4 ) / 10 ) + 0.8f,
+		(float)gEngfuncs.pfnRandomLong( 0, 4 ) / 10.0f + 0.8f,
 		shellVelScaled );
 	EV_EjectBrass( ShellOrigin, shellVelScaled, angles[YAW], shell, TE_BOUNCE_SHELL );
 
@@ -639,6 +727,10 @@ void EV_SGTC_Reetou( struct event_args_s *args )
 			gEngfuncs.pEventAPI->EV_WeaponAnimation( 2, body );
 		V_PunchAxis( 0, gEngfuncs.pfnRandomFloat( -2, 2 ) );
 	}
+
+	// The primary was silent on both sides. Everyone hears it, the shooter too.
+	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/reetou.wav",
+		1.0f, 0.8f, 0, 94 + gEngfuncs.pfnRandomLong( 0, 0xf ) );
 }
 
 // ref 0x1000a10c — reetou2: local anim 3, body R(0,1)
@@ -776,7 +868,9 @@ void EV_SGTC_BigLance( struct event_args_s *args )
 	if( EV_IsLocal( idx ) )
 	{
 		gEngfuncs.pEventAPI->EV_WeaponAnimation( 1, 2 );
-		V_PunchAxis( 0, gEngfuncs.pfnRandomFloat( 5, 10 ) );	// 0x40a00000,0x41200000
+		// Kick up like the other heavy guns. The ref passed +5..+10
+		// (0x40a00000,0x41200000), which pitched the view down.
+		V_PunchAxis( 0, -gEngfuncs.pfnRandomFloat( 5, 10 ) );
 	}
 
 	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/tirlancegoa.wav",
@@ -819,7 +913,8 @@ void EV_SGTC_Main( struct event_args_s *args )
 
 	VectorMA( origin, 200.0f, forward, vecEnd );
 
-	(void)EV_IsLocal( idx );	// ref calls for side effect only
+	if( EV_IsLocal( idx ) )
+		SGTC_MainBeam_Start();
 
 	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/tirmain.wav",
 		1.0f, 0.8f, 0, 94 + gEngfuncs.pfnRandomLong( 0, 0xf ) );
@@ -846,6 +941,7 @@ void EV_SGTC_Main2( struct event_args_s *args )
 // ref 0x1000844e — mainc: gunpos + VectorMA(origin,200,fwd), no sound
 void EV_SGTC_MainC( struct event_args_s *args )
 {
+	int idx = args->entindex;
 	vec3_t origin, angles, forward, right, up;
 	vec3_t vecSrc, vecEnd;
 	pmtrace_t tr;
@@ -862,6 +958,9 @@ void EV_SGTC_MainC( struct event_args_s *args )
 	AngleVectors( angles, forward, right, up );
 
 	VectorMA( origin, 200.0f, forward, vecEnd );
+
+	if( EV_IsLocal( idx ) )
+		SGTC_MainBeam_Start();
 }
 
 // ref 0x1000858d — mains: stop the main loop sound
@@ -873,6 +972,9 @@ void EV_SGTC_MainS( struct event_args_s *args )
 	VectorCopy( args->origin, origin );
 
 	gEngfuncs.pEventAPI->EV_StopSound( idx, CHAN_STATIC, "weapons/tirmaincont.wav" );
+
+	if( EV_IsLocal( idx ) )
+		SGTC_MainBeam_Stop();
 }
 
 // ref 0x100088e4 — zata: trace + zattir beam
@@ -1089,7 +1191,17 @@ void EV_SGTC_Tac( struct event_args_s *args )
 	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/lazer.spr" );
 
 	gEngfuncs.pEfxAPI->R_BeamEntPoint( idx | 0x1000, tr.endpos, mdl,
-		0.1f, 1.0f, 0, 128.0f, 0, 0, 0, 255.0f, 0, 0 );
+		0.1f, 3.0f, 0, 220.0f, 0, 0, 0, 255.0f, 0, 0 );	// width 3 and brightness 220: at 1 unit the laser was a pixel line and read as nothing
+
+	// A dot where the laser lands, so the aim point reads at range. Only on a
+	// real hit: a miss would put the dot in mid-air at the 600-unit limit.
+	if( tr.fraction < 1.0f )
+	{
+		int dot = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/lazerdot.spr" );
+		if( dot > 0 )
+			gEngfuncs.pEfxAPI->R_TempSprite( tr.endpos, vec3_origin, 0.25f, dot,
+				kRenderGlow, kRenderFxNoDissipation, 1.0f, 0.1f, FTENT_FADEOUT );
+	}
 }
 
 // ref 0x10009e21 — larve: local duck-offset hull trace + anim(5,0)
@@ -1212,6 +1324,126 @@ void EV_SGTC_BeamStop( struct event_args_s *args )
 // ref 0x10008e0e — shield: EMPTY body in ref
 void EV_SGTC_Shield( struct event_args_s *args )
 {
+	int idx = args->entindex;
+	vec3_t origin, angles, forward, right, up, at;
+	int mdl;
+
+	VectorCopy( args->origin, origin );
+	VectorCopy( args->angles, angles );
+	AngleVectors( angles, forward, right, up );
+
+	// The raise cue. The wall itself is the server's effect_shield entity.
+	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON, "weapons/P90recharge.wav",
+		0.9f, 0.8f, 0, 100 );
+
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/shieldglow.spr" );
+	if( mdl > 0 )
+	{
+		VectorMA( origin, 64.0f, forward, at );
+		at[2] += 24.0f;	// eye height
+		gEngfuncs.pEfxAPI->R_TempSprite( at, vec3_origin, 0.6f, mdl, kRenderTransAdd,
+			kRenderFxNoDissipation, 1.0f, 0.5f, FTENT_FADEOUT );
+	}
+}
+
+// Puffs for the medic and goaregen events: a short burst of additive sprites,
+// tinted per event, drifting up from the origin.
+static void SGTC_PuffBurst( const float *origin, int mdl, float r, float g, float b, float flRise, int iCount )
+{
+	int i;
+
+	for( i = 0; i < iCount; i++ )
+	{
+		vec3_t at, vel;
+		TEMPENTITY *pt;
+
+		at[0] = origin[0] + gEngfuncs.pfnRandomFloat( -6.0f, 6.0f );
+		at[1] = origin[1] + gEngfuncs.pfnRandomFloat( -6.0f, 6.0f );
+		at[2] = origin[2] + gEngfuncs.pfnRandomFloat( -4.0f, 8.0f );
+		vel[0] = gEngfuncs.pfnRandomFloat( -8.0f, 8.0f );
+		vel[1] = gEngfuncs.pfnRandomFloat( -8.0f, 8.0f );
+		vel[2] = flRise;
+
+		pt = gEngfuncs.pEfxAPI->R_TempSprite( at, vel, 0.2f, mdl, kRenderTransAdd,
+			kRenderFxNoDissipation, 0.8f, 0.6f, FTENT_FADEOUT );
+		if( pt )
+		{
+			pt->entity.curstate.rendercolor.r = (byte)r;
+			pt->entity.curstate.rendercolor.g = (byte)g;
+			pt->entity.curstate.rendercolor.b = (byte)b;
+		}
+	}
+}
+
+// Shared throw (events/throw.sc): flashbang, gacgoa, couteau and C4. fparam1 is the
+// release strength, 0..1. Everyone hears a whoosh at the release point; the thrower
+// gets a small kick, a little more on a hard throw.
+void EV_SGTC_Throw( struct event_args_s *args )
+{
+	int idx = args->entindex;
+	vec3_t origin;
+	static const char *sounds[3] =
+	{
+		"weapons/swing1.wav",
+		"weapons/swing2.wav",
+		"weapons/swing3.wav"
+	};
+	float flStrength = args->fparam1;
+
+	VectorCopy( args->origin, origin );
+
+	if( EV_IsLocal( idx ) )
+		V_PunchAxis( 0, -( 0.5f + flStrength ) );
+
+	gEngfuncs.pEventAPI->EV_PlaySound( idx, origin, CHAN_WEAPON,
+		sounds[gEngfuncs.pfnRandomLong( 0, 2 )],
+		0.5f + 0.3f * flStrength, 0.8f, 0, 98 + gEngfuncs.pfnRandomLong( 0, 7 ) );
+}
+
+// Self-applied puffs (a medic self heal, goaregen on the shooter) would sit at the
+// feet, below the first-person view. Draw them a little in front and up instead.
+static void SGTC_ViewPuffOrigin( const struct event_args_s *args, float *out )
+{
+	vec3_t fwd, right, up;
+
+	AngleVectors( args->angles, fwd, right, up );
+	VectorMA( args->origin, 40.0f, fwd, out );
+	out[2] += 24.0f;
+}
+
+// Medic (events/medic.sc): iparam1 1 is a heal, a green burst at the target; 2 is
+// poison, a violet burst. A self heal sends the shooter's own origin.
+void EV_SGTC_Medic( struct event_args_s *args )
+{
+	vec3_t origin;
+	int mdl;
+
+	VectorCopy( args->origin, origin );
+	if( args->iparam1 == 3 )	// self heal
+		SGTC_ViewPuffOrigin( args, origin );
+	// Heals use the green shield glow; steam1 is blue, so a tint could not make it green.
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( args->iparam1 == 2 ? "sprites/steam1.spr" : "sprites/shieldglow.spr" );
+	if( mdl <= 0 )
+		return;
+
+	if( args->iparam1 == 2 )
+		SGTC_PuffBurst( origin, mdl, 200.0f, 90.0f, 255.0f, 14.0f, 4 );
+	else
+		SGTC_PuffBurst( origin, mdl, 90.0f, 255.0f, 120.0f, 24.0f, 4 );
+}
+
+// Goaregen (events/goaregen.sc): a green regen puff where the regen lands.
+void EV_SGTC_GoaRegen( struct event_args_s *args )
+{
+	vec3_t origin;
+	int mdl;
+
+	VectorCopy( args->origin, origin );
+	if( args->iparam1 == 1 )	// the shooter
+		SGTC_ViewPuffOrigin( args, origin );
+	mdl = gEngfuncs.pEventAPI->EV_FindModelIndex( "sprites/shieldglow.spr" );
+	if( mdl > 0 )
+		SGTC_PuffBurst( origin, mdl, 120.0f, 255.0f, 150.0f, 28.0f, 5 );
 }
 
 // zat.sc is NOT hooked by ref Game_HookEvents — keep the old fallback stub.
@@ -1222,9 +1454,28 @@ void EV_SGTC_Zat( struct event_args_s *args )
 
 }
 
+// Diagnostic: with sgtc_fxlog 1 every SGTC event prints one SGTCFX line when the
+// client receives it, so a playtest can show which handlers ran. Each event is
+// reached through a trampoline that logs before calling the handler.
+static cvar_t *s_pSgtcFxLog = NULL;
+
+static void SGTC_FxLog( const char *pszEvent, struct event_args_s *args )
+{
+	if( !s_pSgtcFxLog || s_pSgtcFxLog->value <= 0.0f )
+		return;
+	gEngfuncs.Con_Printf( "SGTCFX %s idx=%d origin=%.0f,%.0f,%.0f f1=%.2f i1=%d\n",
+		pszEvent, args->entindex, args->origin[0], args->origin[1], args->origin[2],
+		args->fparam1, args->iparam1 );
+}
+
+#define X( fn, script ) static void SGTC_TR_##fn( struct event_args_s *args ) { SGTC_FxLog( script, args ); fn( args ); }
+SGTC_EV_LIST
+#undef X
+
 void SGTC_ClientProtocol_HookEvents( void )
 {
-#define X( fn, script ) gEngfuncs.pfnHookEvent( script, fn );
+	s_pSgtcFxLog = gEngfuncs.pfnRegisterVariable( "sgtc_fxlog", "0", 0 );
+#define X( fn, script ) gEngfuncs.pfnHookEvent( script, SGTC_TR_##fn );
 SGTC_EV_LIST
 #undef X
 }
@@ -1263,6 +1514,8 @@ static const char *const s_sgtcClientSprites[] =
 {
 	"sprites/handtir.spr",
 	"sprites/lazer.spr",
+	"sprites/lazerdot.spr",
+	"sprites/shieldglow.spr",
 	"sprites/Muz1.spr",
 	"sprites/rain.spr",
 	"sprites/snow.spr",

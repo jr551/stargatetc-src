@@ -9,6 +9,7 @@
 #include "gamerules.h"
 #include "soundent.h"
 #include "sgtc_weapons.h"
+#include "sgtc_throwfx.h"
 
 enum flashbang_e
 {
@@ -48,6 +49,7 @@ void CFlashBang::Precache( void )
 	PRECACHE_MODEL( "models/p_grenade.mdl" );
 	PRECACHE_SOUND( "common/null.wav" );
 	SGTC_PrecacheSound( "weapons/flashbang.wav" );
+	SGTC_ThrowFxPrecache();
 }
 
 SGTC_GETITEM( CFlashBang, SGTC_AMMO_FLASH, 10, WEAPON_NOCLIP, 5, 5, SGTC_WPN_FLASHBANG, 24, 10 )
@@ -151,6 +153,7 @@ void CFlashBang::WeaponIdle( void )
 			SendWeaponAnim( FLASHBANG_THROW3 );
 
 		m_pPlayer->SetAnimation( PLAYER_ATTACK1 );
+		SGTC_PlayThrowFx( m_pPlayer, vecSrc, flVel / 1000.0f, SGTC_WPN_FLASHBANG );
 
 		m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType]--;
 		m_flStartThrow = 0.0f;

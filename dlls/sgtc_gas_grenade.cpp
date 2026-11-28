@@ -10,6 +10,7 @@
 #include "sgtc_gas_grenade.h"
 #include "sgtc_weapons.h"
 #include "soundent.h"
+#include "sgtc_throwfx.h"
 
 short g_sModelIndexSgtcMustard = 0;
 short g_sModelIndexSgtcNarco = 0;
@@ -23,6 +24,7 @@ void SGTC_PrecacheGasSprites( void )
 	g_sModelIndexSgtcNarco = PRECACHE_MODEL( "sprites/nargas.spr" );
 	g_sModelIndexSgtcNerve = PRECACHE_MODEL( "sprites/ngas.spr" );
 	g_sModelIndexSgtcGasSmoke = PRECACHE_MODEL( "sprites/steam1.spr" );
+	PRECACHE_SOUND( "weapons/gren_cock1.wav" );	// pin pull, SGTC_GasPinPull
 }
 
 static short SGTC_GasSpriteIndex( int gasType )
@@ -145,6 +147,28 @@ void CSGTCGasCloud::TumbleThink( void )
 	}
 }
 
+// A gas-sprite burst at the cloud, scaled with its radius. TE_SPRITE's scale is a byte
+// in tenths, so radius/4 gives 0.6 at the start and 3.7 at the 150 limit.
+static void SGTC_GasCloudBurst( const Vector &at, short spriteIndex, float flRadius )
+{
+	if( !spriteIndex )
+		return;
+	int iScale = (int)( flRadius / 4.0f );
+	if( iScale < 5 )
+		iScale = 5;
+	if( iScale > 37 )
+		iScale = 37;
+	MESSAGE_BEGIN( MSG_PVS, SVC_TEMPENTITY, at );
+		WRITE_BYTE( TE_SPRITE );
+		WRITE_COORD( at.x );
+		WRITE_COORD( at.y );
+		WRITE_COORD( at.z );
+		WRITE_SHORT( spriteIndex );
+		WRITE_BYTE( iScale );
+		WRITE_BYTE( 180 );	// brightness
+	MESSAGE_END();
+}
+
 void CSGTCGasCloud::CloudThink( void )
 {
 	if( gpGlobals->time >= m_flExpireTime )
@@ -160,6 +184,11 @@ void CSGTCGasCloud::CloudThink( void )
 	const short iSpr = SGTC_GasSpriteIndex( m_iGasType );
 	const int iWMain = SGTC_GasBeamWidth( pev->dmg, 0.7f );
 	SGTC_GasBeamPoints( origin + Vector( 0, 0, 8 ), origin - Vector( 0, 0, 8 ), iSpr, iWMain );
+	// The beams above are a 16-unit strip about 42 wide. The cloud lands 1000+ units
+	// away in play, where that strip is a few pixels, and the cough radius (up to 150)
+	// had no visible counterpart. This sprite burst grows with the radius, so the cloud
+	// reads at range.
+	SGTC_GasCloudBurst( origin + Vector( 0, 0, 16 ), iSpr, m_flCloudRadius );
 	// ref @0x11bca6: second burst when ((pev->effects >> 4) & 1) == 0 (EF_NODRAW set).
 	if( (((int)pev->effects >> 4) & 1) == 0 )
 	{
@@ -317,6 +346,7 @@ void CSGTCGasGrenadeWeapon::SGTC_GasPinPull( void )
 	m_flGasStartThrow = gpGlobals->time;
 	m_flGasReleaseThrow = 0.0f;
 	m_pPlayer->SnagInvis();
+	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/gren_cock1.wav", 1.0f, ATTN_NORM );	// pin pull was silent
 	SendWeaponAnim( SGTC_FIRE1 );	// ref pin-pull anim 2
 	m_flTimeWeaponIdle = UTIL_WeaponTimeBase() + 0.5f;
 }
@@ -354,6 +384,7 @@ void CSGTCGasGrenadeWeapon::SGTC_GasWeaponIdle( int iWeaponId, SGTC_GasType gasT
 			time = 0.0f;
 
 #ifndef CLIENT_DLL
+		SGTC_PlayThrowFx( m_pPlayer, vecSrc, flVel / 1000.0f, iWeaponId );	// the throw cue, as for the other grenades
 		CSGTCGasCloud *pNade = SGTC_ShootGasGrenade( m_pPlayer->pev, vecSrc, vecThrow,
 			time, pszWorldModel, gasType, flDmg );
 		if( pNade )

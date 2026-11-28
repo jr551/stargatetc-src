@@ -856,6 +856,8 @@ void StartFrame( void )
 	SGTC_Mech_Frame();	// build-13: generic gate/ring/door runtime state for bots
 	extern void SGTC_ItemGuard_Tick( void );
 	SGTC_ItemGuard_Tick();	// build-11: clamp runaway dropped weapon-item velocity
+	extern void SGTC_ThrowFx_Frame( void );
+	SGTC_ThrowFx_Frame();	// throw feedback for the stock handgrenade (ammo drop watch)
 
 #ifdef BUILD_JK_BOTTI
 	SGTC_Bots_StartFrame();

@@ -34,6 +34,7 @@
 #include "gamerules.h"
 #include "teamplay_gamerules.h"
 #include "sgtc_gate_dlight.h"
+#include "sgtc_throwfx.h"
 
 extern CGraph WorldGraph;
 extern CSoundEnt *pSoundEnt;
@@ -492,6 +493,18 @@ void CWorld::Precache( void )
 	CVAR_SET_STRING( "sv_stepsize", "24" );
 #endif
 	CVAR_SET_STRING( "room_type", "0" );// clear DSP
+
+	SGTC_ThrowFxPrecache();	// every map: the throw event the handgrenade watch plays
+
+	// Client-only effect sprites. The client finds a sprite with EV_FindModelIndex, which
+	// only sees models the server has precached, so an unlisted one returns 0 and the
+	// effect is skipped without an error. Zat and Tac beams (lazer.spr, zattir.spr), the
+	// Tac dot (lazerdot.spr), and the medic, goaregen and shield glows (shieldglow.spr)
+	// were all invisible for that reason.
+	PRECACHE_MODEL( "sprites/lazer.spr" );
+	PRECACHE_MODEL( "sprites/lazerdot.spr" );
+	PRECACHE_MODEL( "sprites/zattir.spr" );
+	PRECACHE_MODEL( "sprites/shieldglow.spr" );
 
 	// Set up game rules
 	if( g_pGameRules )

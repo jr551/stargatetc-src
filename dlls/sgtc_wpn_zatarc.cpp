@@ -114,7 +114,11 @@ void CZatarc::PrimaryAttack( void )
 	if( pHit && pHit->IsPlayer() )
 		((CBasePlayer *)pHit)->m_bLanceStunFlag = 1;
 
-	CSprite *pMuz = CSprite::SpriteCreate( "sprites/Muz1.spr", tr.vecEndPos, TRUE );
+	// Full-alpha additive flash at the hit point. A close hit made it cover the
+	// whole view (the zatarc yellow-green tint), so only far hits get it; the
+	// impact flare from the client still shows every hit.
+	CSprite *pMuz = ( tr.vecEndPos - vecSrc ).Length() > 300.0f
+		? CSprite::SpriteCreate( "sprites/Muz1.spr", tr.vecEndPos, TRUE ) : NULL;
 	if( pMuz )
 	{
 		pMuz->AnimateAndDie( 20.0f );

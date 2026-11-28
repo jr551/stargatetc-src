@@ -50,6 +50,7 @@ void CReetou::Precache( void )	// ref @0x1623b4
 
 	PRECACHE_SOUND( "weapons/invis.wav" );
 	PRECACHE_SOUND( "weapons/invisdec.wav" );
+	PRECACHE_SOUND( "weapons/reetou.wav" );	// primary shot, played by events/reetou.sc
 
 	UTIL_PrecacheOther( "reetou_proj" );	// ref: proj model in entity Precache
 

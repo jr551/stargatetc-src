@@ -1370,12 +1370,9 @@ void CBaseEntity::FireBullets( ULONG cShots, Vector vecSrc, Vector vecDirShootin
 
 	// Muzzle flash: the renderer turns EF_MUZZLEFLASH into a one-frame elight
 	// (255,192,64, radius 24, decay 320) at attachment 0; the engine clears the
-	// bit again in SV_NewFrame (sv_main.c).  Every player bullet weapon funnels
-	// through this function - including bot fire, which arrives as IN_ATTACK
-	// from the bot director and runs the same weapon PrimaryAttack - so set it
-	// here instead of relying on per-weapon copies.  Only the five bullet
-	// weapons (m16/m92s/p90/psg1/usas) set the flag explicitly today; that left
-	// weapon_main, zat, zatarc and any future bullet weapon without a flash.
+	// bit again in SV_NewFrame (sv_main.c).  This path serves non-player shooters
+	// (turrets, tanks, gates, barney).  Player guns fire through
+	// FireBulletsPlayer, which adds the server muzzle light and smoke itself.
 	pev->effects |= EF_MUZZLEFLASH;
 	SGTC_MuzzleFx( pev, vecSrc, iBulletType );
 
@@ -1510,6 +1507,15 @@ Vector CBaseEntity::FireBulletsPlayer( ULONG cShots, Vector vecSrc, Vector vecDi
 
 	if( pevAttacker == NULL )
 		pevAttacker = pev;  // the default attacker is ourselves
+
+	// Muzzle light and smoke for guns. Player guns fire through this function,
+	// not FireBullets, so this is their only server-side muzzle FX (bots too,
+	// they run the same PrimaryAttack). Energy shots also come through here
+	// (zat, zatarc and the weapon_main blast, types 13, 18 and 10) and get no
+	// puff: they have no barrel.
+	if( iBulletType != SGTC_BULLET_ZAT && iBulletType != SGTC_BULLET_ZATARC &&
+		iBulletType != SGTC_BULLET_TYPE10 )
+		SGTC_MuzzleFx( pevAttacker, vecSrc, iBulletType );
 
 	ClearMultiDamage();
 	gMultiDamage.type = DMG_BULLET | DMG_NEVERGIB;

@@ -175,6 +175,8 @@ set (SVDLL_SOURCES
 	sgtc_wpn_batsup.cpp
 	sgtc_wpn_coujaf.cpp
 	sgtc_wpn_couteau.cpp
+	sgtc_throwfx.cpp
+	sgtc_wpn_c4.cpp
 	sgtc_wpn_flashbang.cpp
 	sgtc_wpn_gacgoa.cpp
 	sgtc_wpn_glstaff.cpp
