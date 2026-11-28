@@ -19,6 +19,10 @@ build() { name=$1; shift; "$@" > "$W/$name.build" 2>&1 || { echo "FAIL $name (bu
 build fire_patch c++ -std=c++11 -O1 -Idlls -o "$W/fire_patch" dlls/sgtc_firepatch.cpp tests/host/fire_patch_cap_harness.cpp && run fire_patch "$W/fire_patch"
 build gate_timing c++ -std=c++11 -O1 -Idlls -Icommon -Iengine -Ipublic -o "$W/gate_timing" tests/host/gate_timing_harness.cpp && run gate_timing "$W/gate_timing"
 build bot_edict c++ -std=c++11 -O1 -Idlls -o "$W/bot_edict" dlls/sgtc_bots_budget.cpp tests/host/bot_edict_budget_harness.cpp && run bot_edict "$W/bot_edict"
+build bot_persona c++ -std=c++11 -O1 -Ibots/jk_botti -o "$W/bot_persona" tests/host/bot_persona_harness.cpp bots/jk_botti/bot_persona.cpp && run bot_persona "$W/bot_persona"
+build bot_stamina c++ -std=c++11 -O1 -Idlls -o "$W/bot_stamina" tests/host/bot_stamina_harness.cpp && run bot_stamina "$W/bot_stamina"
+build hpb_waypoint c++ -std=c++11 -O1 -Ibots/jk_botti -o "$W/hpb_waypoint" tests/host/hpb_waypoint_harness.cpp bots/jk_botti/waypoint_hpb.cpp && run hpb_waypoint "$W/hpb_waypoint"
+build bot_learn c++ -std=c++11 -O1 -Ibots/jk_botti -o "$W/bot_learn" tests/host/bot_learn_harness.cpp bots/jk_botti/bot_learn_core.cpp && run bot_learn "$W/bot_learn"
 build director c++ -std=c++11 -O1 -Idlls -o "$W/director" tests/host/director_core_harness.cpp dlls/sgtc_director_core.cpp && run director "$W/director"
 build font_fallback c++ -std=c++11 -O1 -Ifreevgui -Ifreevgui/include -Iutils/vgui/include -Iexternal -o "$W/font_fallback" tests/host/font_fallback_harness.cpp $FONTSRC && run font_fallback "$W/font_fallback"
 build scheme_font c++ -std=c++11 -O1 -w -Dstricmp=strcasecmp $INC -o "$W/scheme_font" tests/host/scheme_font_fallback_harness.cpp cl_dll/vgui_SchemeManager.cpp $FONTSRC && \

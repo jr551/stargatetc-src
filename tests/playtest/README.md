@@ -23,7 +23,7 @@ internal symbols in `hl.so`:
 
     tests/playtest/host_harnesses.sh [install dir]
 
-Fire-patch cap, gate timing, bot edict budget, director core, font fallback, the scheme fonts
+Fire-patch cap, gate timing, bot edict budget, bot persona, bot stamina, bot learning, HPB waypoint reader, director core, font fallback, the scheme fonts
 at six VGUI tiers, third-person camera, l10n parser, the command menu data and the console
 and HUD font lumps (`tests/qfont_wad_regression.py`).
 
