@@ -270,7 +270,7 @@ static void cmd_players( void )
 			"\"maxspeed\":%.1f,\"latch\":%.1f,\"stamina\":%d,\"fuser2\":%d,\"weapons\":%d,\"active\":\"%s\",\"rea\":%d,\"ammo\":[%s],\"velocity\":[%.1f,%.1f,%.1f],\"origin\":[%.1f,%.1f,%.1f],"
 			"\"class\":%d,\"active_team\":%d,\"effects\":%d,\"nodraw\":%d,\"rendermode\":%d,\"renderamt\":%.0f,\"renderfx\":%d,"
 			"\"cloaktick\":%d,\"sprint\":%d,\"snag\":%d,\"fake\":%d,\"observer\":%d,"
-			"\"iuser1\":%d,\"deadflag\":%d,\"solid\":%d,\"movetype\":%d,\"inworld\":%d}",
+			"\"iuser1\":%d,\"deadflag\":%d,\"solid\":%d,\"movetype\":%d,\"inworld\":%d,\"knifelatch\":%d}",
 			gpGlobals->time, i, name, model, e->v.health, e->v.armorvalue, (int)e->v.team, e->v.frags,
 			e->v.maxspeed, pl->m_flMaxSpeedLatch, pl->m_iStamina, (int)e->v.fuser2, (int)e->v.weapons, active_esc,
 			SGTC_ReaDebugActive() ? 1 : 0, ammo,
@@ -281,7 +281,8 @@ static void cmd_players( void )
 			(int)e->v.rendermode, e->v.renderamt, (int)e->v.renderfx,
 			(int)pl->m_bSgtcCloakTick, (int)pl->m_bShieldSprint, (int)pl->m_bSnagInvisLatch,
 			FBitSet( e->v.flags, FL_FAKECLIENT ) ? 1 : 0, pl->IsObserver() ? 1 : 0,
-			(int)e->v.iuser1, (int)e->v.deadflag, (int)e->v.solid, (int)e->v.movetype, (int)pl->m_bSgtcInWorld );
+			(int)e->v.iuser1, (int)e->v.deadflag, (int)e->v.solid, (int)e->v.movetype, (int)pl->m_bSgtcInWorld,
+			pl->m_iSgtcCouteauThrowLatch );
 		++n;
 	}
 	test_out( "SGTCTEST {\"cmd\":\"players\",\"count\":%d}", n );
@@ -1223,10 +1224,15 @@ static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *
 	const char bHurtSaved = pShooter->m_bHurtInvertFx;
 	const float flGateSaved = pShooter->m_flGateTravel;
 	const int iObserverSaved = pShooter->pev->iuser1;
+	const int iKnifeLatchSaved = pShooter->m_iSgtcCouteauThrowLatch;
 	pShooter->m_bShieldLarge = 0;
 	pShooter->m_bHurtInvertFx = 0;
 	pShooter->m_flGateTravel = 0.0f;
 	pShooter->pev->iuser1 = 0;
+	// The knife's prep press needs the player's throw latch at 0 and only a throw or a latch of 2
+	// clears it, so a bot that had already used its own knife (latch 1) made a freshly deployed one
+	// look dead on both passes (two of eight runs on 2026-11-28).
+	pShooter->m_iSgtcCouteauThrowLatch = 0;
 	// A weapon that spawns something needs room in front of the shooter (the larva trace starts
 	// 15 units out), so a bot facing a wall made weapon_larve look dead in two runs. A press pair
 	// with no effect is repeated facing each of the other three directions.
@@ -1259,6 +1265,7 @@ static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *
 	pShooter->m_bHurtInvertFx = bHurtSaved;
 	pShooter->m_flGateTravel = flGateSaved;
 	pShooter->pev->iuser1 = iObserverSaved;
+	pShooter->m_iSgtcCouteauThrowLatch = iKnifeLatchSaved;
 
 	*pbPrimary = bPrimary;
 	*pbSecondary = bSecondary;
