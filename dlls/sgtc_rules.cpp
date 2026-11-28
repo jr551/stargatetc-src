@@ -1008,7 +1008,8 @@ void CStargateTeamDM::SGTC_ThinkRecountCamperSweep( void )
 				pl->m_flCampWarnDeadline < gpGlobals->time &&
 				pl->m_flCampNextWarn < gpGlobals->time )
 			{
-				pl->CampWarn( 1 );
+				// Deathmatch is plain deathmatch: no camp warning (its text names the key).
+					// The camp timers below still run, so the warning latch rearms as before.
 				pl->m_flCampRearm = gpGlobals->time + 5.0f;
 				pl->m_flCampNextWarn = gpGlobals->time + 3.0f;
 			}
