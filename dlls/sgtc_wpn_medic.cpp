@@ -77,7 +77,7 @@ void CMedicx::PrimaryAttack( void )	// ref @0x10bd00
 	Vector vecEnd = vecSrc + gpGlobals->v_forward * 8192.0f;
 
 	TraceResult tr;
-	UTIL_TraceLine( vecSrc, vecEnd, dont_ignore_monsters, m_pPlayer->edict(), &tr );
+	SGTC_TraceLineTeammates( vecSrc, vecEnd, m_pPlayer->edict(), &tr );	// teammates are heal targets
 
 	CBasePlayer *pTarget = (CBasePlayer *)CBaseEntity::Instance( tr.pHit );
 	if( pTarget && pTarget->IsPlayer() && pTarget->IsAlive() )

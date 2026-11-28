@@ -65,8 +65,23 @@ cvar_t sgtc_cvar_team_nocollide = { "sgtc_team_nocollide", "1", FCVAR_SERVER };
 // above.  Separate cvar so either behaviour can be turned off independently.
 cvar_t sgtc_cvar_bot_nocollide = { "sgtc_bot_nocollide", "1", FCVAR_SERVER };
 
+// The engine runs ShouldCollide for traces as well as for movement, so with team
+// no-collide on, a trace fired by a player never reports a player on the same team.
+// The medic and the Goa'uld regen weapon heal the player they hit, so their trace
+// must see teammates: SGTC_TraceLineTeammates raises this around the trace.
+static int s_iTraceTeammates = 0;
+
+void SGTC_TraceLineTeammates( const Vector &vecStart, const Vector &vecEnd, edict_t *pentIgnore, TraceResult *ptr )
+{
+	s_iTraceTeammates++;
+	UTIL_TraceLine( vecStart, vecEnd, dont_ignore_monsters, pentIgnore, ptr );
+	s_iTraceTeammates--;
+}
+
 extern "C" int SGTC_ShouldCollide( edict_t *pentTouched, edict_t *pentOther )
 {
+	if( s_iTraceTeammates > 0 )
+		return 1;
 	cvar_t *pCvar = CVAR_GET_POINTER( "sgtc_team_nocollide" );
 	if( !pCvar || pCvar->value <= 0.0f )
 		return 1;

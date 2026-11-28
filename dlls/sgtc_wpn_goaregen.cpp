@@ -83,7 +83,7 @@ void CMedicxgoa::PrimaryAttack( void )	// ref @0x1069f4
 	Vector vecEnd = vecSrc + gpGlobals->v_forward * 8192.0f;
 
 	TraceResult tr;
-	UTIL_TraceLine( vecSrc, vecEnd, dont_ignore_monsters, m_pPlayer->edict(), &tr );	// ref flag 0
+	SGTC_TraceLineTeammates( vecSrc, vecEnd, m_pPlayer->edict(), &tr );	// ref flag 0; teammates are regen targets
 
 	MESSAGE_BEGIN( MSG_PVS, SVC_TEMPENTITY, vecSrc );
 		WRITE_BYTE( TE_DLIGHT );
