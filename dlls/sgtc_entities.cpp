@@ -59,7 +59,17 @@ void CFlash::Spawn( void )
 	// ref CFlash::Spawn @0xfcbb6 — CItem::Spawn + UTIL_SetSize (rodata 400 / 0 / -400) + nextthink +0.1.
 	Precache();
 	m_pFlashThrower = NULL;
-	CItem::Spawn();
+	// CItem::Spawn removes the item when DROP_TO_FLOOR finds no floor within 256 units, so a
+	// flashbang that went off high above the floor or over a pit vanished with "Item info_flash
+	// fell out of level" and never flashed. The flash is a 400 unit trigger around the blast
+	// point and does not need a floor: drop it when there is one, keep it where it is otherwise.
+	pev->movetype = MOVETYPE_TOSS;
+	pev->solid = SOLID_TRIGGER;
+	UTIL_SetOrigin( pev, pev->origin );
+	UTIL_SetSize( pev, Vector( -16, -16, 0 ), Vector( 16, 16, 16 ) );
+	SetTouch( &CItem::ItemTouch );
+	if( DROP_TO_FLOOR( ENT( pev ) ) == 0 )
+		pev->movetype = MOVETYPE_NONE;	// no floor below: stay at the blast point, do not fall
 	UTIL_SetSize( pev, Vector( -400, -400, -400 ), Vector( 400, 400, 400 ) );
 	pev->nextthink = gpGlobals->time + 0.1f;
 }
