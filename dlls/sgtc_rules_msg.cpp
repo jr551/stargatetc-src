@@ -340,6 +340,51 @@ void CStargateTeamCP::UpdateGameMode( CBasePlayer *pPlayer )
 	MESSAGE_END();
 }
 
+// Deathmatch MOTD. The stock motd.txt describes the key and the bomb zone, which
+// deathmatch no longer has, so deathmatch sends this text instead. A server that
+// points motdfile at another file still gets that file.
+#define SGTC_DM_MOTD_CHUNK	60
+extern int gmsgMOTD;
+extern int gmsgServerName;
+
+void CStargateTeamDM::SendMOTDToClient( edict_t *client )
+{
+	// CStargateTeamCP derives from this class and reports its own description, so only
+	// the deathmatch rules take this path.
+	const char *pszFile = CVAR_GET_STRING( "motdfile" );
+	if( strcmp( GetGameDescription(), "StargateTC-DM" ) != 0 ||
+		( pszFile && *pszFile && strcmp( pszFile, "motd.txt" ) != 0 ) )
+	{
+		CHalfLifeMultiplay::SendMOTDToClient( client );
+		return;
+	}
+
+	static const char szText[] =
+		"Welcome to Stargate TC.\n\n"
+		"Deathmatch: two teams, Tau'ri and Goa'uld. Win the firefight and take the\n"
+		"tickets before the timer runs out.\n";
+	const int iLength = (int)strlen( szText );
+
+	MESSAGE_BEGIN( MSG_ONE, gmsgServerName, NULL, client );
+		WRITE_STRING( CVAR_GET_STRING( "hostname" ) );
+	MESSAGE_END();
+
+	int iSent = 0;
+	while( iSent < iLength )
+	{
+		char chunk[SGTC_DM_MOTD_CHUNK + 1];
+		const int iPart = ( iLength - iSent < SGTC_DM_MOTD_CHUNK ) ? iLength - iSent : SGTC_DM_MOTD_CHUNK;
+		memcpy( chunk, szText + iSent, iPart );
+		chunk[iPart] = 0;
+		iSent += iPart;
+
+		MESSAGE_BEGIN( MSG_ONE, gmsgMOTD, NULL, client );
+			WRITE_BYTE( iSent < iLength ? FALSE : TRUE );	// FALSE: more chunks follow
+			WRITE_STRING( chunk );
+		MESSAGE_END();
+	}
+}
+
 void CStargateTeamDM::GlobalText( int iTeam, int iText )
 {
 	// ref @0x17c222: alive players only (vtable+0xa8 == IsAlive);

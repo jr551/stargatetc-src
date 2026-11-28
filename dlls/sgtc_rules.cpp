@@ -622,6 +622,17 @@ CStargateTeamDM *SGTC_GetTeamDMRules( void )
 	return NULL;
 }
 
+// Deathmatch (the "StargateTC-DM" rules on the sg_ and sgi_ maps) has no key,
+// bomb or nuke objective. CStargateTeamCP derives from CStargateTeamDM, so the
+// description string, not the class, is what separates deathmatch from CP.
+BOOL SGTC_KeyObjectivesOff( void )
+{
+	if( !g_pGameRules || !g_pGameRules->IsTeamplay() )
+		return FALSE;
+	const char *pszDesc = g_pGameRules->GetGameDescription();
+	return ( pszDesc && !strcmp( pszDesc, "StargateTC-DM" ) ) ? TRUE : FALSE;
+}
+
 BOOL CStargateTeamDM::FPlayerCanChangeInfo( CBasePlayer *pPlayer )
 {
 	(void)pPlayer;
@@ -884,6 +895,8 @@ BOOL CStargateTeamDM::SGTC_ThinkDMCoreLatches( void )
 // firstplace). Runs while KeyInPlay && KeyTime < now.
 void CStargateTeamDM::SGTC_ThinkKeyBlock( void )
 {
+	if( SGTC_KeyObjectivesOff() )
+		return;	// deathmatch: nothing to respawn, no key-state text
 	if( !( sgtc_KeyInPlay == 1 && sgtc_KeyTime < gpGlobals->time ) )
 		return;
 
