@@ -94,6 +94,9 @@ void CP90::SecondaryAttack( void )	// ref @0x129c3c
 		m_iP90SilencerLatch = 1;
 	}
 
+	// The silencer toggle made no sound. The reference precaches this click for the P90.
+	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/357_cock1.wav", 0.8f, ATTN_NORM );
+
 	m_flP90Latch204 = 0.0f;
 	m_flP90Latch208 = 0.0f;
 	m_flNextSecondaryAttack = UTIL_WeaponTimeBase() + 1.0f;
