@@ -360,7 +360,7 @@ protected:
 	virtual void GoToIntermission( void );
 	float m_flIntermissionEndTime;
 	BOOL m_iEndIntermissionButtonHit;
-	void SendMOTDToClient( edict_t *client );
+	virtual void SendMOTDToClient( edict_t *client );
 };
 
 bool IsPlayerBusting( CBaseEntity *pPlayer );

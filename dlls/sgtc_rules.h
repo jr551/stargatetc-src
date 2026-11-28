@@ -123,6 +123,7 @@ public:
 	BOOL IsTeamplay( void ) override { return TRUE; }
 	BOOL IsStargate( void ) { return TRUE; }
 	const char *GetGameDescription( void ) override { return "StargateTC-DM"; }
+		void SendMOTDToClient( edict_t *client ) override;	// deathmatch MOTD: no key or bomb text
 	void InitHUD( CBasePlayer *pPlayer ) override;
 	void UpdateGameMode( CBasePlayer *pPlayer ) override;
 	void PlayerSpawn( CBasePlayer *pPlayer ) override;

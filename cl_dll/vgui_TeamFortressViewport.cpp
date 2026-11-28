@@ -412,6 +412,51 @@ void CCommandMenu::MakeVisible( CCommandMenu *pChildMenu )
 		m_pParentMenu->MakeVisible( this );
 }
 
+// Deathmatch has no key or bomb, so its command menu leaves out the two lines that
+// call for them. Each entry is one line of commandmenu.txt. The text is cut in place,
+// so the buffer that COM_FreeFile releases is still the one COM_LoadFile returned.
+static int SgtcStripKeyObjectiveLines( char *pText )
+{
+	char *pRead = pText;
+	char *pWrite = pText;
+	int iRemoved = 0;
+	while( *pRead )
+	{
+		char *pEnd = strchr( pRead, '\n' );
+		const size_t iLen = pEnd ? (size_t)( pEnd - pRead ) + 1 : strlen( pRead );
+		char szLine[256];
+		const size_t iCopy = ( iLen + 1 < sizeof( szLine ) ) ? iLen + 1 : sizeof( szLine );
+		strlcpy( szLine, pRead, iCopy );
+		const bool bKeyLine = strstr( szLine, "say_team Get The Key" ) != NULL ||
+			strstr( szLine, "say_team Activate The Bomb" ) != NULL;
+		if( bKeyLine )
+			iRemoved++;
+		else
+		{
+			memmove( pWrite, pRead, iLen );
+			pWrite += iLen;
+		}
+		pRead += iLen;
+	}
+	*pWrite = 0;
+	return iRemoved;
+}
+
+// The game mode arrives after the menus exist, so the GameMode message calls this.
+// The deathmatch menu is built on first use; every other mode keeps the plain menu.
+void TeamFortressViewport::SetDeathmatchCommandMenu( bool bDeathmatch )
+{
+	if( !bDeathmatch )
+	{
+		if( m_iPlainCommandMenu >= 0 )
+			m_StandardMenu = m_iPlainCommandMenu;
+		return;
+	}
+	if( m_iDMCommandMenu < 0 )
+		m_iDMCommandMenu = CreateCommandMenu( "commandmenu.txt", 0, CMENU_TOP, false, CMENU_SIZE_X, BUTTON_SIZE_Y, 0, true );
+	m_StandardMenu = m_iDMCommandMenu;
+}
+
 //================================================================
 // CreateSubMenu
 CCommandMenu *TeamFortressViewport::CreateSubMenu( CommandButton *pButton, CCommandMenu *pParentMenu, int iYOffset, int iXOffset )
@@ -579,6 +624,8 @@ TeamFortressViewport::TeamFortressViewport( int x, int y, int wide, int tall ) :
 	m_iCurrentTeamNumber = m_iUser1 = m_iUser2 = m_iUser3 = 0;
 
 	m_StandardMenu = CreateCommandMenu( "commandmenu.txt", 0, CMENU_TOP, false, CMENU_SIZE_X, BUTTON_SIZE_Y, 0 );
+	m_iPlainCommandMenu = m_StandardMenu;
+	m_iDMCommandMenu = -1;
 	m_SpectatorOptionsMenu = CreateCommandMenu("spectatormenu.txt", 1, PANEL_HEIGHT, true, CMENU_SIZE_X, BUTTON_SIZE_Y / 2, 0 );	// above bottom bar, flat design
 	m_SpectatorCameraMenu = CreateCommandMenu("spectcammenu.txt", 1, PANEL_HEIGHT, true, XRES( 200 ), BUTTON_SIZE_Y / 2, ScreenWidth - ( XRES ( 200 ) + 15 ) );	// above bottom bar, flat design
 
@@ -719,7 +766,7 @@ static void CommandMenuTreeWiden( CCommandMenu *pMenu, int iDepth, int iDelta, i
 // Purpose: Read the Command Menu structure from the txt file and create the menu.
 //			Returns Index of menu in m_pCommandMenus
 //-----------------------------------------------------------------------------
-int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction, int yOffset, bool flatDesign, float flButtonSizeX, float flButtonSizeY, int xOffset )
+int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction, int yOffset, bool flatDesign, float flButtonSizeX, float flButtonSizeY, int xOffset, bool bNoKeyObjective )
 {
 	// COMMAND MENU
 	// Create the root of this new Command Menu
@@ -747,6 +794,9 @@ int TeamFortressViewport::CreateCommandMenu( const char *menuFile, int direction
 	try
 	{
 #endif
+		if( bNoKeyObjective )
+			gEngfuncs.Con_DPrintf( "[sgtc] deathmatch command menu: %d key lines removed\n", SgtcStripKeyObjectiveLines( pFileStart ) );
+
 		// First, read in the localisation strings
 
 		// Detpack strings
