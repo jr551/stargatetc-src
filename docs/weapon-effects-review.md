@@ -9,7 +9,7 @@ Branch `goal/weapon-effects-feel`, on top of `716dc00`. Scope: every weapon clas
 - **Multiplayer runs with a real local player.** `maxplayers 4`, `sgtc_bot_team 1` and `motdfile nomotd.txt` (the server MOTD window is modal and blocks `+attack`), then `autopick` and `sgtc_loadout_done`, put the local player in the round as a class. `sgtc_test "unarmed 1 2"` then `kill` makes the player a teammate of the bots. A bot is held 100 units ahead with `sgtc_test movebot_2_-1600_1280_100` every frame, because bots keep walking. With `maxplayers 2` the round ends at once and firing is blocked. The frames are from the build at `adb4bed` with the repaired font WADs; the merged tree `70f94f8` was re-run for the events (`mp-medic16`: poison `i1=2`, heal `i1=1`; the regen shot missed that time).
 - **Extra runs** for cases the sweep does not reach: the silenced P90, the charged Zat shot, medic self-heal, the larve detonation, the six shims, the gas release (three runs), and glstaff, Batsup and the satchel shim after the later changes.
 - **Builds.** The sweep and the extra runs used r16 (`hl.so` md5 `1027e860…`, `client.so` md5 `3482aee5…`). The gas, glstaff and Batsup-second-swing runs used r17 (`hl.so` md5 `cc9efb1f…`). The satchel shim and the bolt-light removal were checked on r18 and r19 builds, on glstaff and the satchel shim only. The zatarc flash gate and the colormap test token are on r20. The MP5 click and the entity-count checks are on the later build.
-- **Sound was not heard.** The runs used `-nosound`. Where the code plays a sound, the file was checked on disk. Nothing below claims a sound was heard.
+- **Sound was measured, not heard.** The picture runs used `-nosound`. A separate set of runs recorded the engine's audio output (see "Sound, measured" below). Rows outside that section make no claim about sound beyond the file existing on disk.
 - **Visible effects** come from single screenshot frames. "Not in frame" means the frame did not show the effect; it does not mean the effect is absent.
 - **Evidence files** are in the test scratch folder, not the repo: run logs `one-<tag>.clean`, screenshots `one-shots/<tag>.png`, and the server log `dedi-final3.log`.
 
@@ -83,6 +83,26 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_satchel` (SP shim → CSgtcC4) | `throw.sc` ×1 (`i1=14`, r18) | Not checked | — | — | Now derives from CSgtcC4 (`fd44f29`) |
 | `weapon_shotgun` (SP shim → CShotgun) | `spas.sc` and `spas2.sc` ×1 | Not checked | — | — | Single-player only |
 
+## Sound, measured
+
+The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so these runs use `SDL_AUDIODRIVER=alsa AUDIODEV=pulse PULSE_SINK=<null sink>`, and `parec` on the sink's monitor records what the engine outputs. Each case plays a marker (three `buttons/blip1.wav` plays, 12 frames apart), waits 90 frames, then does the action. Each wav is then located in the recording by normalized cross-correlation: 1.00 is an exact copy, and mixing with other sounds lowers it. Run `snd-snd2` on the merged tree `70f94f8`, single-player `sg_nox`.
+
+| Case | Sound found | Match | After the marker's last blip |
+|---|---|---|---|
+| MP5 secondary | `weapons/357_cock1.wav` | 0.98 | +1.7 s; the only match in the run |
+| Mustard gas pin pull | `weapons/gren_cock1.wav` | 0.92 | +1.6 s |
+| Mustard release | a `swing` whoosh | 0.56 | +2.3 s, mixed with the grenade's own sounds |
+| Reetou primary | `weapons/reetou.wav` | 0.77 (0.64 alone in `snd3`) | +1.5 s; one event, one play |
+| USAS shot, then reload | `weapons/reload1.wav` | 0.98 | +3.7 s (the shot has no template here) |
+| Shield raise | `weapons/P90recharge.wav` | 0.98 | +1.6 s |
+| Flashbang throw | a `swing` whoosh | 0.47 | +2.2 s |
+| Hand grenade throw | `weapons/swing3.wav` | 1.00 | +2.2 s |
+| Control: marker, no action | none of the above | none | none |
+
+A second `reetou.wav` match (0.98) came 3.4 s after the first in `snd2`. The single-shot run has only one, and only the Reetou event plays the file, so another shooter in that session most likely made it (the single-player map runs enemies). It was not chased.
+
+Not measured: the coujaf miss swing (`nightstrike.wav` is missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing), and the P90 silencer toggle (silent).
+
 ## Stock-based classes (no stock file edited)
 
 - **`weapon_handgrenade`** (`dlls/handgrenade.cpp`). The throw cue comes from `dlls/sgtc_throwfx.cpp`, which watches each player's handgrenade ammo once per frame and sends `events/throw.sc` when it drops.
@@ -107,7 +127,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 8. **Larve detonation.** The blast itself has sound and damage only. The visible effect is the concussion fade: the view goes grey for several frames when the blast hits a player within 128 units (`larvevis-3`). In the harness the player is on team 0, so the larve's enemy search does not exclude its owner; with teams that check applies.
 9. **P90 silencer toggle** is silent. A click would be a small addition.
 10. **Heal and poison on a target.** Captured in the multiplayer runs (see the medic and goaregen rows). Earlier attempts used `jointeam`, `menuselect` and key presses and stayed an observer; `autopick` after the briefing step spawns the local player as a class, and the pending team and class are applied on the next dead tick.
-11. **Sound** is still unheard (every run used `-nosound`). It can be measured on a PipeWire null sink, which is the next step.
+11. **Sound.** Measured on a PipeWire null sink (section above): the MP5 click, the gas pin pull, the Reetou shot, the USAS reload, the shield raise cue and the throw whoosh are in the audio output. Nobody has listened to them. Whether they sound right, and at what volume, is still a human check.
 
 ## Commits on this branch since `716dc00`
 
