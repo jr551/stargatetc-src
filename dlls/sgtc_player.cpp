@@ -694,7 +694,7 @@ void CBasePlayer::Zat( entvars_t *pevInflictor )
 		if( !m_bZatTouchFlag )					// ref +0xa88 == 0 → 10.0
 			flDmg = 10.0f;	// rodata @0x1d6fac
 		else if( sgtc_cvar_truezat.value == 0.0f )	// ref truezat == 0 → 80.0
-			flDmg = 80.0f;	// rodata @0x1d6fa4
+			flDmg = ( pevInflictor && ( FClassnameIs( pevInflictor, "monster_sgtc_jaffa" ) || FClassnameIs( pevInflictor, "monster_sgtc_jaffa_big" ) ) ) ? 25.0f : 80.0f;	// Jaffa zat lowered from 80 to 25 (approved 2026-11-28); other zat sources keep 80
 		else
 			flDmg = 2000.0f;	// rodata @0x1d6fa8
 

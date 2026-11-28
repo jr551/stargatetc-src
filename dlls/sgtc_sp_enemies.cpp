@@ -69,7 +69,7 @@ void SGTC_SP_EnemiesInit( void )
 #define JAFFA_SPEED_BIG		130.0f
 #define JAFFA_ATTACK_DIST	260.0f	// stop and shoot from here
 #define JAFFA_MELEE_DIST	85.0f
-#define JAFFA_MELEE_DAMAGE	20.0f
+#define JAFFA_MELEE_DAMAGE	10.0f	// lowered from 20 (approved 2026-11-28)
 #define JAFFA_RANGED_DELAY	1.25f
 #define JAFFA_MELEE_DELAY	1.1f
 
