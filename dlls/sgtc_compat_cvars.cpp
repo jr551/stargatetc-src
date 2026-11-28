@@ -1,6 +1,6 @@
 // sgtc_compat_cvars.cpp - GoldSrc engine cvars that Xash3D FWGS does not have.
 //
-// The shipped server.cfg, listenserver.cfg and game.cfg set these, so every start logged
+// The shipped server.cfg, listenserver.cfg and game.cfg set most of these, so every start logged
 // "Warning: Unknown command ..." for each of them, and the console now shows the lines.
 // Registering them as inert cvars lets the configs apply silently. A build whose engine has
 // one of them keeps the engine's cvar (SGTC_RegisterOrAdoptCvar adopts an existing one), and
@@ -18,6 +18,9 @@ static cvar_t s_compat_sv_allow_download = { "sv_allow_download", "1" };
 static cvar_t s_compat_sv_allow_upload = { "sv_allow_upload", "1" };
 static cvar_t s_compat_timeout = { "timeout", "125" };
 static cvar_t s_compat_zombietime = { "zombietime", "2" };
+// Set by the game code and by maps on load; Xash prints "Cvar_Set: variable ... not found" for each.
+static cvar_t s_compat_room_type = { "room_type", "0" };
+static cvar_t s_compat_v_dark = { "v_dark", "0" };
 
 void SGTC_CompatCvarsInit( void )
 {
@@ -30,4 +33,6 @@ void SGTC_CompatCvarsInit( void )
 	SGTC_RegisterOrAdoptCvar( &s_compat_sv_allow_upload );
 	SGTC_RegisterOrAdoptCvar( &s_compat_timeout );
 	SGTC_RegisterOrAdoptCvar( &s_compat_zombietime );
+	SGTC_RegisterOrAdoptCvar( &s_compat_room_type );
+	SGTC_RegisterOrAdoptCvar( &s_compat_v_dark );
 }

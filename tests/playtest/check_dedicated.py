@@ -8,7 +8,7 @@ Usage:
     check_dedicated.py botkill  <log>               botkill (scenarios/botkill.cfg)
     check_dedicated.py stamina  <log>               GUI log of gui_scenarios.py stamina: regen must run
     check_dedicated.py flash    <log>               flashtest (scenarios/flash.cfg): no info_flash removed at spawn
-    check_dedicated.py quiet    <log> [<log> ...]   dedicated logs: no unknown-command or late-precache warnings
+    check_dedicated.py quiet    <log> [<log> ...]   dedicated logs: no unknown-command, late-precache or missing-cvar warnings
     check_dedicated.py sp       <log> [<expected replaced>]   run_sp.sh log: activates, no missing jaffa.mdl
 
 Each check prints one PASS/FAIL line per rule and exits 1 when any rule fails. Colour codes in
@@ -103,7 +103,8 @@ def check_flash(rep, path, text):
 
 def check_quiet(rep, path, text):
     for needle, what in (("Unknown command", "unknown-command warnings"), ("late precache", "late precache warnings"),
-                         ("fell out of level", "items that fell out of the level")):
+                         ("fell out of level", "items that fell out of the level"),
+                         ("Cvar_Set: variable", "sets of cvars the engine does not have")):
         rep.rule(needle not in text, "%s: no %s" % (path, what))
 
 
