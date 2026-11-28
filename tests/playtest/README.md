@@ -48,6 +48,8 @@ Make a hard-linked private copy per run (real copies of everything the engine wr
 | `flash` | `sg_nox` | `flashtest`: an `info_flash` spawned 300, 500 and 700 units above a bot must survive its own Spawn (it used to be removed when no floor was within 256 units, so that flashbang never flashed). |
 | `long` | `sg_pyramide` | 275 s soak with Zat duels and a C4 drop and detonation. |
 
+`check_dedicated.py quiet <log>` fails a dedicated log that has unknown-command, late-precache or fell-out-of-level warnings.
+
 `ALERT( at_console )` output does not reach the dedicated log. The harness lines come from
 `test_out` in `dlls/sgtc_testcmd.cpp`, which writes to stdout.
 

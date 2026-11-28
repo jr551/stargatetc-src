@@ -8,6 +8,7 @@ Usage:
     check_dedicated.py botkill  <log>               botkill (scenarios/botkill.cfg)
     check_dedicated.py stamina  <log>               GUI log of gui_scenarios.py stamina: regen must run
     check_dedicated.py flash    <log>               flashtest (scenarios/flash.cfg): no info_flash removed at spawn
+    check_dedicated.py quiet    <log> [<log> ...]   dedicated logs: no unknown-command or late-precache warnings
     check_dedicated.py sp       <log> [<expected replaced>]   run_sp.sh log: activates, no missing jaffa.mdl
 
 Each check prints one PASS/FAIL line per rule and exits 1 when any rule fails. Colour codes in
@@ -100,11 +101,21 @@ def check_flash(rep, path, text):
         rep.rule(rows[-1]["removed"] == 0, "flash: no info_flash removed at spawn (removed %d of 3)" % rows[-1]["removed"])
 
 
+def check_quiet(rep, path, text):
+    for needle, what in (("Unknown command", "unknown-command warnings"), ("late precache", "late precache warnings"),
+                         ("fell out of level", "items that fell out of the level")):
+        rep.rule(needle not in text, "%s: no %s" % (path, what))
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
     mode, paths = sys.argv[1], sys.argv[2:]
     rep = Report()
+    if mode == "quiet":
+        for path in paths:
+            check_quiet(rep, path, read(path))
+        return 1 if rep.failed else 0
     if mode == "sp":
         check_clean(rep, paths[0], read(paths[0]))
         check_sp(rep, paths[0], read(paths[0]), int(paths[1]) if len(paths) > 1 else None)
