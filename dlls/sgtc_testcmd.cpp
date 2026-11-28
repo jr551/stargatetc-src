@@ -269,7 +269,8 @@ static void cmd_players( void )
 		test_out( "SGTCTEST {\"cmd\":\"player\",\"time\":%.3f,\"index\":%d,\"name\":\"%s\",\"model\":\"%s\",\"health\":%.0f,\"armor\":%.0f,\"team\":%d,\"frags\":%.0f,"
 			"\"maxspeed\":%.1f,\"latch\":%.1f,\"stamina\":%d,\"fuser2\":%d,\"weapons\":%d,\"active\":\"%s\",\"rea\":%d,\"ammo\":[%s],\"velocity\":[%.1f,%.1f,%.1f],\"origin\":[%.1f,%.1f,%.1f],"
 			"\"class\":%d,\"active_team\":%d,\"effects\":%d,\"nodraw\":%d,\"rendermode\":%d,\"renderamt\":%.0f,\"renderfx\":%d,"
-			"\"cloaktick\":%d,\"sprint\":%d,\"snag\":%d,\"fake\":%d,\"observer\":%d}",
+			"\"cloaktick\":%d,\"sprint\":%d,\"snag\":%d,\"fake\":%d,\"observer\":%d,"
+			"\"iuser1\":%d,\"deadflag\":%d,\"solid\":%d,\"movetype\":%d,\"inworld\":%d}",
 			gpGlobals->time, i, name, model, e->v.health, e->v.armorvalue, (int)e->v.team, e->v.frags,
 			e->v.maxspeed, pl->m_flMaxSpeedLatch, pl->m_iStamina, (int)e->v.fuser2, (int)e->v.weapons, active_esc,
 			SGTC_ReaDebugActive() ? 1 : 0, ammo,
@@ -279,7 +280,8 @@ static void cmd_players( void )
 			(int)e->v.effects, ( e->v.effects & EF_NODRAW ) ? 1 : 0,
 			(int)e->v.rendermode, e->v.renderamt, (int)e->v.renderfx,
 			(int)pl->m_bSgtcCloakTick, (int)pl->m_bShieldSprint, (int)pl->m_bSnagInvisLatch,
-			FBitSet( e->v.flags, FL_FAKECLIENT ) ? 1 : 0, pl->IsObserver() ? 1 : 0 );
+			FBitSet( e->v.flags, FL_FAKECLIENT ) ? 1 : 0, pl->IsObserver() ? 1 : 0,
+			(int)e->v.iuser1, (int)e->v.deadflag, (int)e->v.solid, (int)e->v.movetype, (int)pl->m_bSgtcInWorld );
 		++n;
 	}
 	test_out( "SGTCTEST {\"cmd\":\"players\",\"count\":%d}", n );
@@ -1215,26 +1217,37 @@ static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *
 	const int ammoBefore = SGTC_WepAmmoSum( pShooter, pWep );
 	// The probe measures the weapon's fire path, not the shooter's state. The knife refuses to
 	// swing for a class with the big shield (the first bot can be one, and then the sweep lost the
-	// knife on 2026-11-28), while it is hurt-flashed or just out of a gate, so lift those gates for
-	// the two attacks and put them back after.
+	// knife on 2026-11-28), while it is hurt-flashed, just out of a gate or observing, so lift those
+	// gates for the two attacks and put them back after.
 	const char bShieldSaved = pShooter->m_bShieldLarge;
 	const char bHurtSaved = pShooter->m_bHurtInvertFx;
 	const float flGateSaved = pShooter->m_flGateTravel;
+	const int iObserverSaved = pShooter->pev->iuser1;
 	pShooter->m_bShieldLarge = 0;
 	pShooter->m_bHurtInvertFx = 0;
 	pShooter->m_flGateTravel = 0.0f;
-	bool bArmed = false;
-	for( int press = 0; press < 2; ++press )
+	pShooter->pev->iuser1 = 0;
+	// A weapon that spawns something needs room in front of the shooter (the larva trace starts
+	// 15 units out), so a bot facing a wall made weapon_larve look dead in two runs. A press pair
+	// with no effect is repeated facing each of the other three directions.
+	const Vector vecAimSaved = pShooter->pev->v_angle;
+	bool bArmed = false, bPrimary = false;
+	for( int aim = 0; aim < 4 && !bPrimary; ++aim )
 	{
-		pWep->m_flNextPrimaryAttack = 0.0f;
-		pWep->m_flTimeWeaponIdle = 0.0f;
-		pWep->PrimaryAttack();
-		if( pWep->m_flNextPrimaryAttack > 0.0f || pWep->m_flTimeWeaponIdle > 0.0f || pWep->m_flStartThrow > 0.0f )
-			bArmed = true;
+		pShooter->pev->v_angle.y = UTIL_AngleMod( vecAimSaved.y + 90.0f * aim );
+		for( int press = 0; press < 2; ++press )
+		{
+			pWep->m_flNextPrimaryAttack = 0.0f;
+			pWep->m_flTimeWeaponIdle = 0.0f;
+			pWep->PrimaryAttack();
+			if( pWep->m_flNextPrimaryAttack > 0.0f || pWep->m_flTimeWeaponIdle > 0.0f || pWep->m_flStartThrow > 0.0f )
+				bArmed = true;
+		}
+		bPrimary = bArmed || pWep->m_iClip != clipBefore ||
+			SGTC_WepAmmoSum( pShooter, pWep ) != ammoBefore || NUMBER_OF_ENTITIES() > entsBefore;
 	}
+	pShooter->pev->v_angle = vecAimSaved;
 	const int entsPrimary = NUMBER_OF_ENTITIES() - entsBefore;
-	const bool bPrimary = bArmed || pWep->m_iClip != clipBefore ||
-		SGTC_WepAmmoSum( pShooter, pWep ) != ammoBefore || entsPrimary > 0;
 
 	const int entsSecondaryBefore = NUMBER_OF_ENTITIES();
 	pWep->m_flNextSecondaryAttack = 0.0f;
@@ -1245,6 +1258,7 @@ static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *
 	pShooter->m_bShieldLarge = bShieldSaved;
 	pShooter->m_bHurtInvertFx = bHurtSaved;
 	pShooter->m_flGateTravel = flGateSaved;
+	pShooter->pev->iuser1 = iObserverSaved;
 
 	*pbPrimary = bPrimary;
 	*pbSecondary = bSecondary;
@@ -1256,16 +1270,25 @@ static bool SGTC_WepFireOne( CBasePlayer *pShooter, const char *pszClass, bool *
 
 static CBasePlayer *SGTC_WepFireShooter( void )
 {
+	// Prefer a bot that is playing. A bot can sit in observer mode (iuser1 set) for the whole
+	// window the sweep runs in (three sg2dm_radio runs on 2026-11-28 never had another one), so
+	// without a playing bot take the first live one: the probe lifts the observer state for the
+	// two attacks (SGTC_WepFireOne), since the melee weapons refuse to swing for an observer.
+	CBasePlayer *pFallback = NULL;
 	for( int i = 1; i <= gpGlobals->maxClients; ++i )
 	{
 		CBaseEntity *pEntity = UTIL_PlayerByIndex( i );
-		// Not an observer: the melee weapons refuse to swing for one (a bot waiting out the
-		// round start on sg2dm_radio was the first live bot, and coujaf, couteau and batsup failed).
 		if( pEntity && pEntity->IsPlayer() && FBitSet( pEntity->pev->flags, FL_FAKECLIENT ) &&
-			pEntity->IsAlive() && !( (CBasePlayer *)pEntity )->IsObserver() )
-			return (CBasePlayer *)pEntity;
+			pEntity->IsAlive() )
+		{
+			CBasePlayer *pPlayer = (CBasePlayer *)pEntity;
+			if( !pPlayer->IsObserver() )
+				return pPlayer;
+			if( !pFallback )
+				pFallback = pPlayer;
+		}
 	}
-	return NULL;
+	return pFallback;
 }
 
 static void cmd_wepfireall( void )

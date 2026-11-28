@@ -41,7 +41,7 @@ Make a hard-linked private copy per run (real copies of everything the engine wr
 
 | scenario | map | what it covers |
 | --- | --- | --- |
-| `wepfire_late` | `sg_nox` | `wepfireall`: every weapon class given to a bot and both attacks fired (31 given, 31 primary, 11 secondary). Runs after 45 s because the knife deploy pad is an absolute time of 40.07 s. |
+| `wepfire_late` | `sg_nox` | `wepfireall`: every weapon class given to a bot and both attacks fired (31 given, 31 primary, 11 secondary). Runs after 45 s because the knife deploy pad is an absolute time of 40.07 s, and is called every 4 s from 45 s to 89 s: the shooter is the first live bot that is not an observer, or any live bot when all of them are (on sg2dm_radio the bots can sit in observer mode for the whole window). The repeat covers a start with no live bot yet: a call with no shooter does nothing, and the second call that finds one runs the retry pass. The probe fills an empty clip and lifts the shield, hurt-flash, gate-travel and observer states for the two attacks, then restores them, so the first bot's class and state cannot hide a weapon. |
 | `grenadeall` | `sg_nox` | `grenadethrowall`: the six grenade classes pin on press and throw on release. |
 | `botkill` | `sg_nox` | `botkill`: a lethal bullet from one bot to the next at 40 s and 90 s, respawn in between. |
 | `mapsweep` | any of the 44 maps | four bots, 30 s, `info` at 12 s and 24 s; a load and clean-shutdown check per map (`check_dedicated.py clean`). |
