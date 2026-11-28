@@ -34,9 +34,9 @@ These are referenced by the code but are in neither the repo nor the test game f
 |---|---|---|
 | `models/v_shield.mdl`, `models/p_shield.mdl`, `models/w_shield.mdl` | `weapon_shield` (`dlls/sgtc_wpn_shield.cpp`, client table `cl_dll/sgtc_weapons_client.cpp:49`) | The shield gun has no viewmodel or worldmodel. Its raise sound and glow still play. |
 | `sprites/zatwave.spr` | `weapon_zat` (`dlls/sgtc_wpn_zat.cpp:96`, beam TEs at `:267`; projectile `dlls/sgtc_misc.cpp:73`) | The zat wave sprite is not drawn. |
-| `sound/weapons/nightstrike.wav` | `weapon_coujaf` (`dlls/sgtc_wpn_coujaf.cpp:152`, `:294`) | The coujaf night-strike sound is silent. |
-| `sound/weapons/flashbang.wav` | `weapon_flashbang` (`dlls/sgtc_wpn_flashbang.cpp:51`) | Precached but absent. The detonation sound is `common/null.wav` (`:88`), so the flashbang is silent at detonation. |
-| `sound/weapons/timer.wav` | HUD (`cl_dll/status_icons.cpp:148`) | The HUD timer beep is silent. |
+| `sound/weapons/nightstrike.wav` | `weapon_coujaf` (`dlls/sgtc_wpn_coujaf.cpp:152`, `:294`) | The night-strike sound was silent. Since the stand-in change (`beb352e`) the coujaf's own `weapons/coujafcorps.wav` plays in its place while the real file is absent. The branch only runs in the latch swing state (`m_iSwing == 1` with `m_bHurtInvertFx`), which no run reached, so the stand-in is compiled but has not been heard. |
+| `sound/weapons/flashbang.wav` | `weapon_flashbang` (`dlls/sgtc_wpn_flashbang.cpp:51`) | Precached but absent, and nothing played it, so the flashbang was silent at detonation (the `common/null.wav` at `:88` is the holster cut, not the detonation). The flash think now plays the real file when it exists and `weapons/dbarrel1.wav` (pitch 108) until then; measured in the audio output at the detonation, match 1.00 against none before. The Goa'uld device shares the think and is left as it was. |
+| `sound/weapons/timer.wav` | HUD (`cl_dll/status_icons.cpp:148`) | Never played, so no stand-in: the stock status-icon hack plays it when a StatusIcon named `grenade...` is enabled, and the server registers no StatusIcon message. |
 
 Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and other non-weapon sounds are stock content and outside this review.
 
@@ -67,7 +67,7 @@ Every other `.wav` the SGTC code plays is present. Missing vehicle, radio and ot
 | `weapon_coujaf` (CCoujaf) | `coujaf.sc` ×1 (swing and miss) | Blade mid-swing; no hit in frame | None | — | Miss now sends the event (commit 7323428). `nightstrike.wav` missing |
 | `weapon_couteau` (CCouteau) | `couteau.sc` ×1 and `throw.sc` ×1 (`i1=3`) | Knife held | `throw.sc` ×1 (`i1=3`) | Knife held; throw not in frame | |
 | `weapon_gacgoa` (CGrenadeChoc) | `throw.sc` ×1 (`i1=10`) | Device held; throw not in frame. Thrown at the floor 150 units ahead with the camera looking down (`thr2-gacgoa`): the device flies, then the whole view whites out from about 2.4 s after the throw and is fully white at 3.5 s. It is the same `CGrenade::ShootFlash` path as the flashbang, and the two have the same time course: mean brightness 90 before, 255 from 5 to 7 s after release, still 255 at 17 s and back to normal at 19 s (`thr3-gacgoa`, `thr3-flash`). That is the worst case, looking at the device from close range | `throw.sc` ×1 (`i1=10`) | Held | The whiteout is about 12 s at full white, long next to the flashbang's grey-white fade in the earlier frames; it is the shared flash code, so a change belongs there, not here |
-| `weapon_flashbang` (CFlashBang) | `throw.sc` ×1 (`i1=0`) | Held; the detonation shows as a grey-white flash that fades (`flashvis-4`, `flashvis-5`) | None | — | `i1=0` is the flashbang's id by design. Detonation is the stock flash path (`CGrenade::ShootFlash`); `flashbang.wav` missing, so the detonation sound is silent |
+| `weapon_flashbang` (CFlashBang) | `throw.sc` ×1 (`i1=0`) | Held; the detonation shows as a grey-white flash that fades (`flashvis-4`, `flashvis-5`) | None | — | `i1=0` is the flashbang's id by design. Detonation is the stock flash path (`CGrenade::ShootFlash`); `flashbang.wav` is missing, so a stand-in bang plays at the detonation (see the sound table) |
 | `weapon_handgrenade` (CHandGrenade, stock) | `throw.sc` ×1 (`i1=12`) from the ammo watch | Grenade held. Thrown at the floor (`thr2-hgrenade`): the grenade is in the air for about 2 s, then a bright flash with sparks, a fireball, a black smoke cloud and a scorch mark on the ground | None | — | Stock class, not edited; the detonation is the stock effect |
 | `weapon_c4` (CSgtcC4) | `throw.sc` ×1 (`i1=14`) | Two C4 units; a charge is on the ground ahead | Stock detonate; not run | — | Subclass of the stock satchel |
 | `weapon_mine` (CTripmine, stock) | None; stock `tripfire.sc` is not logged | Mine held; placement not captured | None | — | Stock class, not edited |
@@ -103,6 +103,7 @@ The engine's bundled SDL has only the alsa, disk and dummy audio drivers, so the
 | P90 silencer toggle (`snd4`) | `weapons/357_cock1.wav` | 0.95 | +1.5 s |
 | PSG1 zoom, two steps (`snd5`) | `weapons/357_cock1.wav` | 0.95, 0.95 | +1.8 s and 1.6 s later |
 | Zatarc zoom, three steps (`sndzarc`) | `weapons/357_cock1.wav` | 0.95 each | +1.6 s, then every 1.6 s |
+| Flashbang detonation (`fbfin`, `fbbase`) | `weapons/dbarrel1.wav` stand-in, pitch 108 | 1.00 (0.21 before) | about 2.5 s after the throw |
 | Control: marker, no action | none of the above | none | none |
 
 A second `reetou.wav` match (0.98) comes 3.4 s after the shot, on the baseline build too: the viewmodel's `tir1a` sequence plays it again.
@@ -111,7 +112,7 @@ The coujaf miss swing is audible now (a swing whoosh, peak rms 7308 in `allfin1`
 
 A sound tour for a person with speakers is `tests/playtest/scenarios/sound_tour.cfg`: 14 steps, about two minutes, one console line naming each sound before it plays. Run through the null sink (`tour2`), every step's wav is in the output: 11 clicks across the five toggle steps, the pin pull and whoosh, the three throw whooshes, the full charge sound (0.88) with the whoosh on top, the reload, the shield cue, the Reetou shot, and the coujaf and couteau swings. Nobody has done the listening yet; the tour is how.
 
-Not measured: the coujaf `nightstrike.wav` (missing), the flashbang detonation (`flashbang.wav` is missing), the HUD timer (`timer.wav` is missing).
+Not measured: the coujaf night-strike stand-in (the branch needs the latch swing state, which no run reached).
 
 ## Final sweep on the merged tree
 
@@ -181,7 +182,7 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 ## Decisions and open items
 
 1. **MP5 secondary.** Approved: the stock edit is `4596d74`. The reference secondary is a cooldown-only stub, so it gets the dry-fire click only, with no projectile and no ammo.
-2. **Missing assets** (table above). Decided: wait for the asset set. The shield viewmodel and worldmodel, the zat wave sprite, and the coujaf, flashbang and HUD timer sounds stay blocked until then.
+2. **Missing assets** (table above). Decided first: wait for the asset set. Then, on 2026-11-28, the user chose sound stand-ins: the flashbang detonation and the coujaf night strike now play an existing sample while the real file is absent, and the real file takes over when it ships. The HUD timer sound is never played, so it needs none. The shield models and the zat wave sprite stay blocked until the asset set arrives.
 3. **Zatarc whole-view tint.** Fixed on r20 (see the table). The source was the full-alpha `Muz1` sprite at close hits.
 4. **Flashbang detonation.** Confirmed. The flashbang leaves the entity list about 3.4 s after the throw, and the view goes grey-white and fades (`flashvis-4`, `flashvis-5`).
 5. **Gas cloud.** Now visible at range as a radius-scaled sprite burst (`9228678`). Detonation at t=16.89, the cloud 1,212 units from the thrower, with the before and after frames as above. The earlier beam strip, 16 units tall and about 42 wide, was a few pixels at that range. Close-range frames are not captured.
@@ -215,3 +216,4 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `1d826a6` Play the throw whoosh on its own channel so it stops cutting the charge sound
 - `25f8500` Draw a muzzle flash for the PSG1
 - `ace710a` Add a click to the zatarc zoom steps
+- `beb352e` Play stand-in sounds for the missing flashbang and coujaf night strike samples
