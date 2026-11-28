@@ -254,6 +254,30 @@ int main( int argc, char **argv )
 		snprintf( detail, sizeof( detail ), "e9 as char %d, as int %d, e0 %d, pair %d, cell0 %d",
 			w1, w2, w3, pairW, a0 + b0 + c0 );
 		report( "accent-width", w1 == w2 && pairW == w1 + w3, detail );
+
+		// A sheet without accents (the clean-room 640, 800 and 1152 ones) has the missing-glyph box in
+		// every accented cell, the same bitmap as code 0x81. The font then draws the plain letter, so no
+		// accented cell may equal the 0x81 cell; the mod's own sheets keep their accented glyphs.
+		static unsigned char cellAccent[64 * 64 * 4], cellMissing[64 * 64 * 4], cellPlain[64 * 64 * 4];
+		static const int accents[] = { 0xe9, 0xe8, 0xe0, 0xe7, 0xf4, 0xc9 };
+		memset( cellMissing, 0, sizeof( cellMissing ) );
+		font->getCharRGBA( 0x81, 0, 0, 64, 64, cellMissing );
+		int boxes = 0, plain = 0;
+		for( size_t k = 0; k < sizeof( accents ) / sizeof( accents[0] ); k++ )
+		{
+			memset( cellAccent, 0, sizeof( cellAccent ) );
+			font->getCharRGBA( accents[k], 0, 0, 64, 64, cellAccent );
+			if( !memcmp( cellAccent, cellMissing, sizeof( cellAccent )))
+				boxes++;
+			static const char plainOf[] = { 'e', 'e', 'a', 'c', 'o', 'E' };
+			memset( cellPlain, 0, sizeof( cellPlain ) );
+			font->getCharRGBA( plainOf[k], 0, 0, 64, 64, cellPlain );
+			if( !memcmp( cellAccent, cellPlain, sizeof( cellAccent )))
+				plain++;
+		}
+		snprintf( detail, sizeof( detail ), "%d of %zu accented cells are the missing-glyph box, %d draw the plain letter",
+			boxes, sizeof( accents ) / sizeof( accents[0] ), plain );
+		report( "accent-glyph", boxes == 0, detail );
 	}
 
 	if( s_corruptScheme )

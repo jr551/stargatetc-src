@@ -23,6 +23,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <vector>
 
 
 cvar_t *g_CV_BitmapFonts;
@@ -50,6 +51,8 @@ public:
 	CSgtcFont( const char *name, void *pFileData, int fileDataLen, int tall, int wide, float rotation, int weight, bool italic, bool underline, bool strikeout, bool symbol )
 		: vgui::Font( name, pFileData, fileDataLen, tall, wide, rotation, weight, italic, underline, strikeout, symbol )
 	{
+		for ( int i = 0; i < 256; i++ )
+			m_iSubstitute[i] = -1;
 	}
 
 	virtual void getCharABCwide( int ch, int &a, int &b, int &c )
@@ -57,8 +60,57 @@ public:
 		if ( ch < 0 && ch >= -128 )
 			ch += 256;
 
-		vgui::Font::getCharABCwide( ch, a, b, c );
+		vgui::Font::getCharABCwide( Substitute( ch ), a, b, c );
 	}
+
+	// The clean-room 640, 800 and 1152 sheets are uppercase-only with no accents and draw the
+	// missing-glyph box for every accented letter ("CR[]DITS"). When a sheet has that box in an
+	// accented cell, draw the plain letter instead: the accent is lost, the word stays readable.
+	// The mod's own 1024, 1280 and 1600 sheets have the accented glyphs and are left alone.
+	virtual void getCharRGBA( int ch, int rgbaX, int rgbaY, int rgbaWide, int rgbaTall, unsigned char *rgba )
+	{
+		vgui::Font::getCharRGBA( Substitute( ch ), rgbaX, rgbaY, rgbaWide, rgbaTall, rgba );
+	}
+
+private:
+	// The plain letter for a Latin-1 accented one, or 0.
+	static int BaseLetter( int ch )
+	{
+		static const char s_Upper[] = "AAAAAA?CEEEEIIII?NOOOOO?OUUUUY";	// 0xC0..0xDE
+		static const char s_Lower[] = "aaaaaa?ceeeeiiii?nooooo?ouuuuy?y";	// 0xE0..0xFF
+		if ( ch >= 0xC0 && ch <= 0xDD )
+			return s_Upper[ch - 0xC0] == '?' ? 0 : s_Upper[ch - 0xC0];
+		if ( ch >= 0xE0 && ch <= 0xFF )
+			return s_Lower[ch - 0xE0] == '?' ? 0 : s_Lower[ch - 0xE0];
+		return 0;
+	}
+
+	// The cell to use for ch: the plain letter when ch is an accented letter whose cell is the same
+	// bitmap as the cell of code 0x81 (undefined in CP1252, so the sheet's missing-glyph cell), else ch.
+	int Substitute( int ch )
+	{
+		if ( ch < 0 || ch > 255 )
+			return ch;
+		if ( m_iSubstitute[ch] < 0 )
+		{
+			m_iSubstitute[ch] = ch;
+			const int base = BaseLetter( ch );
+			// A fixed 64 x 64 area holds every sheet's cell (27 x 20 at most); getCharRGBA clips to it.
+			const int wide = 64, tall = 64;
+			if ( base )
+			{
+				std::vector<unsigned char> cellCh( (size_t)wide * tall * 4, 0 );
+				std::vector<unsigned char> cellMissing( cellCh.size(), 0 );
+				vgui::Font::getCharRGBA( ch, 0, 0, wide, tall, &cellCh[0] );
+				vgui::Font::getCharRGBA( 0x81, 0, 0, wide, tall, &cellMissing[0] );
+				if ( cellCh == cellMissing )
+					m_iSubstitute[ch] = base;
+			}
+		}
+		return m_iSubstitute[ch];
+	}
+
+	int m_iSubstitute[256];	// -1 not decided yet, else the code whose cell is used
 };
 
 // Every font in the scheme list is a CSgtcFont; vgui::Font has no virtual destructor, so

@@ -108,8 +108,9 @@ the output, so a person only has to judge whether each one sounds right.
   `sprites/zatwave.spr`; `weapons/nightstrike.wav`, `flashbang.wav` and `timer.wav` are absent too
   (the flashbang has a stand-in bang). docs/weapon-effects-review.md records the decision to wait for
   the asset set.
-- The 640, 800 and 1152 VGUI sheets in the clean-room `valve/` set are uppercase-only with a box for
-  every accented letter ("CR[]DITS"), and their big cells overrun the team menu title at 640x480. The
-  mod's own 1024, 1280 and 1600 sheets are full CP1252 and draw accents correctly.
+- The 640, 800 and 1152 VGUI sheets in the clean-room `valve/` set are uppercase-only and have the
+  missing-glyph box in every accented cell, so `CSgtcFont` draws the plain letter there ("CREDITS", the
+  accent is lost; `accent-glyph` in the scheme font host harness), and their big cells overrun the team
+  menu title at 640x480. The mod's own 1024, 1280 and 1600 sheets are full CP1252 and draw accents.
 - Offscreen runs print `SDL: [Error] No relative mode implementation available` once; that is the
   offscreen video driver, not the mod.
