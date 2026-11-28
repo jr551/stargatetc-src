@@ -66,12 +66,19 @@ extern cvar_t jk_botti_version;
 extern int num_waypoints;
 extern qboolean g_auto_waypoint;
 extern void fast_random_seed(unsigned int seed);
+extern void BotChatHear( edict_t *speaker, const char *text );
+extern void BotChatHumanJoined( edict_t *human );
 class CStargateTeamDM;
 extern CStargateTeamDM *SGTC_GetTeamDMRules( void );
 
 // Read by the bot code (bots/jk_botti/bot.cpp, declared in bot.h).
 int sgtc_bot_roam_enabled = 1;
 int sgtc_bot_rescue_enabled = 1;
+// Import the authored maps/<map>.HPB_wpt graph when it is richer than the
+// jk_botti waypoint file (bots/jk_botti/waypoint.cpp, read at worldspawn).
+int sgtc_bot_hpb_enabled = 1;
+// Bots stop to recover when stamina runs low (dlls/sgtc_bots_stamina.cpp).
+int sgtc_bot_stamina_enabled = 1;
 // bot_radio mode (0 off, 1 obey, 2 obey+talk) and per-bot rate, cached for the
 // bot layer's radio decisions (bots/jk_botti/bot_radio.cpp).
 int sgtc_bot_radio_mode = 2;
@@ -92,6 +99,8 @@ static cvar_t sgtc_bot_class = { "sgtc_bot_class", "0", FCVAR_SERVER };
 static cvar_t sgtc_bot_team = { "sgtc_bot_team", "0", FCVAR_SERVER };
 static cvar_t sgtc_bot_roam = { "sgtc_bot_roam", "1", FCVAR_SERVER };
 static cvar_t sgtc_bot_rescue = { "sgtc_bot_rescue", "1", FCVAR_SERVER };
+static cvar_t sgtc_bot_hpb = { "sgtc_bot_hpb", "1", FCVAR_SERVER, 1.0f, NULL };
+static cvar_t sgtc_bot_stamina = { "sgtc_bot_stamina", "1", FCVAR_SERVER, 1.0f, NULL };
 // Fully initialised: the warning gate counts -Wmissing-field-initializers
 // per sgtc_* file, and the baseline predates these cvars.
 static cvar_t sgtc_bot_kit = { "sgtc_bot_kit", "1", FCVAR_SERVER, 0.0f, NULL };
@@ -127,6 +136,8 @@ static void SGTC_Bots_SyncCvars( void )
 
 	sgtc_bot_roam_enabled = ( sgtc_bot_roam.value != 0.0f ) ? 1 : 0;
 	sgtc_bot_rescue_enabled = ( sgtc_bot_rescue.value != 0.0f ) ? 1 : 0;
+	sgtc_bot_hpb_enabled = ( sgtc_bot_hpb.value != 0.0f ) ? 1 : 0;
+	sgtc_bot_stamina_enabled = ( sgtc_bot_stamina.value != 0.0f ) ? 1 : 0;
 
 	// bot_radio: 0 off, 1 obey orders, 2 obey + talk on its own.
 	sgtc_bot_radio_mode = (int)sgtc_bot_radio.value;
@@ -2266,6 +2277,8 @@ static void SGTC_Bots_CommandStatus( void )
 // lifecycle
 // ---------------------------------------------------------------------------
 
+static void SGTC_Bots_CommandHear( void );
+
 void SGTC_Bots_Init( DLL_FUNCTIONS *gameApi, enginefuncs_t *engineApi )
 {
 	JK_Botti_NativeInit( gameApi, engineApi );
@@ -2281,6 +2294,8 @@ void SGTC_Bots_Init( DLL_FUNCTIONS *gameApi, enginefuncs_t *engineApi )
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_team );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_roam );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_rescue );
+	SGTC_RegisterOrAdoptCvar( &sgtc_bot_hpb );
+	SGTC_RegisterOrAdoptCvar( &sgtc_bot_stamina );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_kit );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_weaponlog );
 	SGTC_RegisterOrAdoptCvar( &sgtc_bot_radio );
@@ -2303,6 +2318,7 @@ void SGTC_Bots_Init( DLL_FUNCTIONS *gameApi, enginefuncs_t *engineApi )
 		engineApi->pfnAddServerCommand( "jk_botti", JK_Botti_ServerCommand );
 		engineApi->pfnAddServerCommand( "sgtc_bot_add", SGTC_Bots_CommandAdd );
 		engineApi->pfnAddServerCommand( "sgtc_bot_kick", SGTC_Bots_CommandKick );
+		engineApi->pfnAddServerCommand( "sgtc_bot_hear", SGTC_Bots_CommandHear );
 		// A command line/config value can create this cvar before the DLL loads;
 		// the engine then refuses the command ("already defined as a var").
 		// The cvar still works, so only install the handler when it is free.
@@ -2419,6 +2435,10 @@ void SGTC_Bots_ClientPutInServer( edict_t *pEntity )
 		return;
 
 	JK_Botti_ClientPutInServer( pEntity );
+
+	// A person came in: one of the bots may say hello.
+	if( !FNullEnt( pEntity ) && !FBitSet( pEntity->v.flags, FL_FAKECLIENT ) )
+		BotChatHumanJoined( pEntity );
 }
 
 void SGTC_Bots_ClientDisconnect( edict_t *pEntity )
@@ -2429,6 +2449,63 @@ void SGTC_Bots_ClientDisconnect( edict_t *pEntity )
 	JK_Botti_ClientDisconnect( pEntity );
 }
 
+// Strip the quotes the engine leaves around `say "text"` and hand the text to
+// the bots' chat layer.
+static void SGTC_Bots_HearChat( edict_t *speaker, const char *args )
+{
+	char text[192];
+	int o = 0;
+
+	if( !args )
+		return;
+
+	for( int i = 0; args[i] && o < (int)sizeof( text ) - 1; i++ )
+	{
+		if( args[i] == '"' )
+			continue;
+		text[o++] = args[i];
+	}
+
+	text[o] = '\0';
+
+	// the same lowercase pass the bots' own name matching uses is done in
+	// BotPersona_Classify; trim leading blanks only
+	const char *t = text;
+
+	while( *t == ' ' )
+		t++;
+
+	if( *t )
+		BotChatHear( speaker, t );
+}
+
+// `sgtc_bot_hear <text>`: feed a line to the bots as if a person had said it
+// (headless tests, and a quick way to see how they answer).
+static void SGTC_Bots_CommandHear( void )
+{
+	char text[192];
+	int o = 0;
+
+	for( int i = 1; i < CMD_ARGC(); i++ )
+	{
+		const char *a = CMD_ARGV( i );
+
+		if( !a )
+			continue;
+
+		if( o > 0 && o < (int)sizeof( text ) - 1 )
+			text[o++] = ' ';
+
+		for( int k = 0; a[k] && o < (int)sizeof( text ) - 1; k++ )
+			text[o++] = a[k];
+	}
+
+	text[o] = '\0';
+
+	if( o > 0 )
+		BotChatHear( NULL, text );
+}
+
 void SGTC_Bots_ClientCommand( edict_t *pEntity )
 {
 	if( !sgtc_bot_enable.value )
@@ -2436,6 +2513,16 @@ void SGTC_Bots_ClientCommand( edict_t *pEntity )
 
 	SGTC_Bots_SyncCvars();
 	JK_Botti_ClientCommand( pEntity );
+
+	// Chat from a person: the bots may answer it (bots/jk_botti/bot_chat.cpp).
+	// Their own lines go through UTIL_HostSay, not here, so this never loops.
+	const char *cmd = CMD_ARGV( 0 );
+
+	if( cmd && ( FStrEq( cmd, "say" ) || FStrEq( cmd, "say_team" ) ) && !FNullEnt( pEntity ) &&
+		!FBitSet( pEntity->v.flags, FL_FAKECLIENT ) )
+	{
+		SGTC_Bots_HearChat( pEntity, CMD_ARGS() );
+	}
 }
 
 void SGTC_Bots_StartFrame( void )

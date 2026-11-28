@@ -240,6 +240,7 @@ typedef struct
    char  bot_say_msg[256];
    float f_bot_chat_time;
    qboolean b_bot_endgame;
+   qboolean b_chat_greeted;         // SGTC: join greeting decided (said or skipped)
 
    float f_duck_time;
 
@@ -315,6 +316,7 @@ typedef struct
    float f_roam_target_time;        // deadline to pick a new roam point
    qboolean b_roam_target_set;
    qboolean b_roam_have_spawn;
+   float f_no_wpt_since;            // SGTC: time the waypoint search began failing (0 = not failing)
 
    // SGTC: stuck escalation (jump -> reroute -> rescue, sgtc_bot_rescue).
    float f_stuck_time;              // 0 = moving; else time progress stalled

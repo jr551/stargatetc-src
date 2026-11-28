@@ -28,6 +28,7 @@ set(JK_BOTTI_CPP
 	${JK_BOTTI_ROOT}/bot_config_init.cpp
 	${JK_BOTTI_ROOT}/bot_models.cpp
 	${JK_BOTTI_ROOT}/bot_navigate.cpp
+	${JK_BOTTI_ROOT}/bot_persona.cpp
 	${JK_BOTTI_ROOT}/bot_query_hook.cpp
 	${JK_BOTTI_ROOT}/bot_radio.cpp
 	${JK_BOTTI_ROOT}/bot_skill.cpp
@@ -40,6 +41,7 @@ set(JK_BOTTI_CPP
 	${JK_BOTTI_ROOT}/util.cpp
 	${JK_BOTTI_ROOT}/safe_snprintf.cpp
 	${JK_BOTTI_ROOT}/waypoint.cpp
+	${JK_BOTTI_ROOT}/waypoint_hpb.cpp
 	${JK_BOTTI_ROOT}/native/meta_native.cpp
 	${JK_BOTTI_ROOT}/native/engine_hooks.cpp
 )

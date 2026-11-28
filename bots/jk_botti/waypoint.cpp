@@ -25,6 +25,7 @@
 #include "waypoint.h"
 #include "bot_weapons.h"
 #include "player.h"
+#include "waypoint_hpb.h"
 
 #define Z_PREFIX
 #include "zlib/zlib.h"
@@ -1792,6 +1793,145 @@ static qboolean WaypointFixOldWaypoints(void)
 }
 
 
+
+// ---------------------------------------------------------------------------
+// SGTC: authored HPB_bot waypoint import.
+//
+// Every payload map ships a maps/<map>.HPB_wpt laid out by the map makers
+// (55-468 nodes). The jk_botti file that the install generates from spawn
+// points holds about ten, which leaves most of a map outside any bot's reach
+// and the bots standing at their spawn. When the jk_botti graph is the smaller
+// one, the authored nodes are appended to it and the authored paths are used
+// as they are (the map makers walked them); the nodes the jk file already had
+// (items, spawns) are linked in by the usual reachability test.
+//
+// Only movement flags are imported. Item flags are left to the spawn-object
+// scan because jk_botti checks them against live entities.
+// ---------------------------------------------------------------------------
+
+extern int sgtc_bot_hpb_enabled;
+
+#define SGTC_HPB_MAX_EDGES 32768
+
+static hpb_node_t s_hpb_nodes[HPB_WPT_MAX_NODES];
+static hpb_edge_t s_hpb_edges[SGTC_HPB_MAX_EDGES];
+
+// Returns TRUE when waypoints were added; the caller then rebuilds the matrix.
+static qboolean WaypointImportHPB(void)
+{
+   char filename[96];
+   int length = 0;
+   int existing = 0;
+   int rc;
+   hpb_result_t res;
+
+   if (!sgtc_bot_hpb_enabled)
+      return FALSE;
+
+   safevoid_snprintf(filename, sizeof(filename), "maps/%s.HPB_wpt", STRING(gpGlobals->mapname));
+
+   byte *file = LOAD_FILE_FOR_ME(filename, &length);
+
+   if (file == NULL)
+      return FALSE;
+
+   rc = HPB_Parse(file, length, STRING(gpGlobals->mapname), MAX_WAYPOINTS,
+      s_hpb_nodes, s_hpb_edges, SGTC_HPB_MAX_EDGES, REACHABLE_RANGE, &res);
+
+   FREE_FILE(file);
+
+   if (rc != 0)
+   {
+      UTIL_ConsolePrintf("[hpb] %s not used: %s\n", filename, HPB_ErrorString(rc));
+      return FALSE;
+   }
+
+   for (int i = 0; i < num_waypoints; i++)
+      if (!(waypoints[i].flags & (W_FL_DELETED | W_FL_AIMING)))
+         existing++;
+
+   // A richer jk_botti graph (someone laid out a proper file) wins.
+   if (res.nodes < 16 || existing >= res.nodes)
+   {
+      UTIL_ConsolePrintf("[hpb] %s not needed: %d authored nodes, %d waypoints loaded\n",
+         filename, res.nodes, existing);
+      return FALSE;
+   }
+
+   if (num_waypoints + res.nodes > MAX_WAYPOINTS)
+   {
+      UTIL_ConsolePrintf("[hpb] %s not used: %d + %d waypoints do not fit in %d\n",
+         filename, num_waypoints, res.nodes, MAX_WAYPOINTS);
+      return FALSE;
+   }
+
+   const int base = num_waypoints;
+   int slot[HPB_WPT_MAX_NODES];
+   int kept = 0;
+   int in_solid = 0;
+   int paths_added = 0;
+
+   for (int i = 0; i < res.nodes; i++)
+   {
+      TraceResult tr;
+      const Vector origin(s_hpb_nodes[i].origin[0], s_hpb_nodes[i].origin[1], s_hpb_nodes[i].origin[2]);
+
+      // The map may have been recompiled since the file was written: a node
+      // that is now inside geometry would only trap the bots that aim for it.
+      UTIL_TraceHull(origin, origin, ignore_monsters, head_hull, NULL, &tr);
+
+      if (tr.fStartSolid || tr.fAllSolid)
+      {
+         slot[i] = -1;
+         in_solid++;
+         continue;
+      }
+
+      WAYPOINT &w = waypoints[base + kept];
+
+      memset(&w, 0, sizeof(w));
+      w.origin = origin;
+      w.flags = 0;
+
+      if (s_hpb_nodes[i].sem & HPB_SEM_CROUCH)
+         w.flags |= W_FL_CROUCH;
+      if (s_hpb_nodes[i].sem & HPB_SEM_LADDER)
+         w.flags |= W_FL_LADDER;
+
+      wp_display_time[base + kept] = 0.0;
+      slot[i] = base + kept;
+      kept++;
+   }
+
+   num_waypoints = base + kept;
+
+   for (int i = 0; i < res.edges; i++)
+   {
+      const int from = slot[s_hpb_edges[i].from];
+      const int to = slot[s_hpb_edges[i].to];
+
+      if (from < 0 || to < 0)
+         continue;
+
+      WaypointAddPath((short)from, (short)to);
+      paths_added++;
+   }
+
+   // Link the nodes the jk file already had (spawn and item nodes) into the
+   // new graph.
+   for (int i = 0; i < base; i++)
+      if (!(waypoints[i].flags & (W_FL_DELETED | W_FL_AIMING)))
+         WaypointMakePathsWith(i);
+
+   g_waypoint_paths = TRUE;
+
+   UTIL_ConsolePrintf("[hpb] imported %d waypoints and %d paths from %s (%d in solid skipped, "
+      "%d dropped slots, %d over-long paths skipped); kept %d jk_botti waypoints\n",
+      kept, paths_added, filename, in_solid, res.dropped_nodes, res.long_edges, existing);
+
+   return kept > 0 ? TRUE : FALSE;
+}
+
 qboolean WaypointLoad(edict_t *pEntity)
 {
    gzFile bfp;
@@ -1927,11 +2067,22 @@ qboolean WaypointLoad(edict_t *pEntity)
          }
       }
 
+      // SGTC: authored HPB waypoints join the graph before the matrix is built.
+      if (WaypointImportHPB())
+         Changed = TRUE;
+
       WaypointRouteInit(Changed);
    }
    else
    {
       UTIL_ConsolePrintf("Waypoint file %s not found!\n", filename);
+
+      // SGTC: no jk_botti file, but the authored HPB graph may exist.
+      if (WaypointImportHPB())
+      {
+         WaypointRouteInit(TRUE);
+         return TRUE;
+      }
 
       return FALSE;
    }

@@ -20,6 +20,7 @@
 #include "bot_skill.h"
 
 #include "bot_config_init.h"
+#include "bot_persona.h"
 #include "bot_name_sanitize.h"
 
 int number_names = 0;
@@ -104,5 +105,24 @@ void BotNameInit( void )
       }
 
       fclose(bot_name_fp);
+   }
+
+   // SGTC: the install ships no names file. Without a fallback every bot is
+   // named after its model ("hgrunt", "barney"), which no player would be.
+   if (number_names == 0)
+   {
+      for (int i = 0; i < BotPersona_NameCount() && number_names < MAX_BOT_NAMES; i++)
+      {
+         safe_strcopy(name_buffer, sizeof(name_buffer), BotPersona_Name(i));
+
+         bot_name_sanitize(name_buffer);
+
+         if (name_buffer[0] != 0)
+         {
+            safe_strcopy(bot_names[number_names], sizeof(bot_names[number_names]), name_buffer);
+
+            number_names++;
+         }
+      }
    }
 }

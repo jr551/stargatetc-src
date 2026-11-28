@@ -225,6 +225,9 @@ if(BUILD_JK_BOTTI)
 		sgtc_director_http.cpp
 		sgtc_bots_radio.cpp
 		sgtc_bots_rules_ai.cpp)
+	# bot player-feel modules: stamina manager
+	list(APPEND SVDLL_SOURCES
+		sgtc_bots_stamina.cpp)
 endif()
 
 if (HAVE_STRLCPY)
