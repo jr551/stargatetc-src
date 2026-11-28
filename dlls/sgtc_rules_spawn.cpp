@@ -272,6 +272,21 @@ void SGTC_GondSlotState( CBasePlayer *pPlayer, int iSlot )
 		pPlayer->m_iSgtcGondState = 3;
 }
 
+// A connect-observer is sent the spectator clock (SetRndTim mode 2) at every round restart,
+// and the client then draws only that clock: no health, armour, stamina or ammo panels.
+// A listen-server host sits in the menus while the bots trigger the first restart, so after
+// joining a team they kept that clock, and an empty HUD, for the whole round. When an
+// observer spawns, send the participant clock instead, as InitHUD does for a joiner.
+void CStargateTeamDM::SGTC_LeaveObserverClock( CBasePlayer *pPlayer )
+{
+	if( pPlayer->m_iHudRoundMode != 2 )
+		return;
+	if( m_flSgtcRoundTime > 0.0f && gpGlobals->time < m_flSgtcRoundEnd )
+		pPlayer->SetHudRoundTime( (int)( m_flSgtcRoundEnd - gpGlobals->time ), 1 );
+	else
+		pPlayer->SetHudRoundTime( 0, 0 );
+}
+
 void CStargateTeamDM::PlayerSpawn( CBasePlayer *pPlayer )
 {
 	// ref CStargateTeamDM::PlayerSpawn @0x18e7e2 (rea_dump/CStargateTeamDM__PlayerSpawn.c).
@@ -281,6 +296,7 @@ void CStargateTeamDM::PlayerSpawn( CBasePlayer *pPlayer )
 	pPlayer->m_bSgtcPad3e3 = 0;					// ref +0x3e3 = 0
 	pPlayer->m_iSgtcFlagsCa8 &= ~0xB;				// ref +0xca8 &= 0xfffffff4
 	pPlayer->StopObserver();
+	SGTC_LeaveObserverClock( pPlayer );
 	CHalfLifeMultiplay::PlayerSpawn( pPlayer );
 	SGTC_PackAuto_Cancel( pPlayer );	// a new spawn owns the loadout again
 	SGTC_ReaDebug_OnPlayerSpawn( pPlayer );	// build-8 debug kit (no-op when cvar 0)
@@ -451,6 +467,7 @@ void CStargateTeamCP::PlayerSpawn( CBasePlayer *pPlayer )
 	pPlayer->m_bSgtcPad3e3 = 0;					// ref +0x3e3 = 0
 	pPlayer->m_iSgtcFlagsCa8 &= ~0xB;				// ref +0xca8 &= 0xfffffff4
 	pPlayer->StopObserver();
+	SGTC_LeaveObserverClock( pPlayer );
 	CHalfLifeMultiplay::PlayerSpawn( pPlayer );
 	SGTC_PackAuto_Cancel( pPlayer );	// a new spawn owns the loadout again
 	SGTC_ReaDebug_OnPlayerSpawn( pPlayer );	// build-8 debug kit (no-op when cvar 0)
