@@ -157,6 +157,8 @@ void CUsas::Reload( void )
 {
 	if( m_pPlayer->m_rgAmmo[m_iPrimaryAmmoType] <= 0 || m_iClip == 10 )
 		return;
-	DefaultReload( 10, 1, 1.0f );
+	// reload1.wav was precached but never played. Play it when the reload starts.
+	if( DefaultReload( 10, 1, 1.0f ) )
+		EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/reload1.wav", 1.0f, ATTN_NORM );
 }
 SGTC_WEAPON_IDLE( CUsas )

@@ -202,6 +202,9 @@ void CMP5::SecondaryAttack( void )
 	// build-21 (weapons audit): ref CMP5::SecondaryAttack @0x116484 is an
 	// 80-byte cooldown-only stub.  The HL under-barrel grenade launcher is
 	// not part of SGTC; no ammo is consumed and no projectile is fired.
+	// The press gives the dry-fire click (precached above) so it is felt.
+	// The cooldown is unchanged.
+	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/357_cock1.wav", 0.8f, ATTN_NORM );
 	m_flNextSecondaryAttack = UTIL_WeaponTimeBase() + 0.5f;
 }
 

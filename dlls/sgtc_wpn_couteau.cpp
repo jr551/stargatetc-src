@@ -9,6 +9,7 @@
 #include "gamerules.h"
 #include "soundent.h"
 #include "sgtc_weapons.h"
+#include "sgtc_throwfx.h"
 #include <cstddef>
 
 // ref rodata @0x1ccd20 — Deploy/Holster seed copied to +0x208 then +0x204
@@ -77,6 +78,7 @@ void CCouteau::Precache( void )
 	PRECACHE_SOUND( "weapons/swing3.wav" );
 
 	m_usFire = PRECACHE_EVENT( 1, "events/couteau.sc" );
+	SGTC_ThrowFxPrecache();
 }
 
 SGTC_GETITEM( CCouteau, NULL, 3, 0, 0, 1, SGTC_WPN_COUTEAU, 0, 0 )
@@ -338,6 +340,8 @@ void CCouteau::ThrowIt( void )	// ref @0xd65b2
 
 	// ref: instant trace GetGunPosition → +v_forward*1100, then drops a
 	// weapon_couteau pickup at the hit point (NO flying bolt entity).
+	SGTC_PlayThrowFx( m_pPlayer, vecSrc, 0.6f, SGTC_WPN_COUTEAU );
+
 	TraceResult tr;
 	UTIL_TraceLine( vecSrc, vecSrc + gpGlobals->v_forward * 1100.0f,
 		ignore_monsters, ENT( m_pPlayer->pev ), &tr );

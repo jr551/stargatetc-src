@@ -391,6 +391,10 @@ static void cmd_reetoutest( void );
 static void cmd_c4detonate( void );
 static void cmd_hazardenable( const char *pszStateId );
 static void cmd_hazardat( float x, float y, float z );
+static void cmd_hurtplayer( int n );
+static void cmd_setammo( int n );
+static void cmd_setstamina( int n );
+static void cmd_colormap9( int n );
 static CBaseEntity *SGTC_TestFindEntity( const char * );
 static void cmd_useentdest( const char *pszTarget );
 static void cmd_ruletest( void );
@@ -592,6 +596,14 @@ static int SGTC_TestRunToken( const char *pszToken )
 		cmd_hazardenable( pszToken + 13 );
 	else if( !strncmp( pszToken, "hazardat_", 10 ) )
 		cmd_hazardat( 0.0f, 0.0f, 0.0f );
+	else if( !strncmp( pszToken, "hurtplayer_", 11 ) )
+		cmd_hurtplayer( atoi( pszToken + 11 ) );
+	else if( !strncmp( pszToken, "ammo_", 5 ) )
+		cmd_setammo( atoi( pszToken + 5 ) );
+	else if( !strncmp( pszToken, "stamina_", 8 ) )
+		cmd_setstamina( atoi( pszToken + 8 ) );
+	else if( !strncmp( pszToken, "colormap9_", 10 ) )
+		cmd_colormap9( atoi( pszToken + 10 ) );
 	else
 		return 0;
 	return 1;
@@ -700,6 +712,57 @@ static void cmd_bugtest( void )
 	test_out( "SGTCTEST {\"cmd\":\"bugtest\",\"cloak_nodraw\":%d,\"cloak_renderamt\":%.0f,"
 		"\"cloak_rendermode\":%d,\"pack_base_only_cancel\":%d,\"pack_with_m16_cancel\":%d}",
 		iCloakNodraw, flCloakAmt, iCloakMode, iBaseOnly, iWithM16 );
+}
+
+// Test-only: hurt the first live player by n. The medic's self heal only works
+// below full health, so the harness needs a way to get there.
+static void cmd_hurtplayer( int n )
+{
+	CBasePlayer *pPlayer = (CBasePlayer *)UTIL_PlayerByIndex( 1 );
+	if( !pPlayer || !pPlayer->IsAlive() || n <= 0 )
+		return;
+	pPlayer->TakeDamage( pPlayer->pev, pPlayer->pev, (float)n, DMG_GENERIC );
+	test_out( "SGTCTEST {\"cmd\":\"hurtplayer\",\"amount\":%d,\"health\":%.0f}", n, pPlayer->pev->health );
+}
+
+// Test-only: set or clear colormap bit 9 on the first player. The invis shield
+// wall starts only when that bit is set (sgtc_wpn_invis.cpp), and a normal
+// player colour never sets it.
+static void cmd_colormap9( int n )
+{
+	CBasePlayer *pPlayer = (CBasePlayer *)UTIL_PlayerByIndex( 1 );
+	if( !pPlayer || !pPlayer->IsAlive() )
+		return;
+	if( n )
+		pPlayer->pev->colormap |= 512;
+	else
+		pPlayer->pev->colormap &= ~512;
+	test_out( "SGTCTEST {\"cmd\":\"colormap9\",\"set\":%d,\"colormap\":%d}", n ? 1 : 0, pPlayer->pev->colormap );
+}
+
+// Test-only: set the first player's stamina to n. Glstaff shots drain stamina,
+// and an overdraw damages the shooter until it dies, so a review that fires
+// several weapons refills stamina before each one.
+static void cmd_setstamina( int n )
+{
+	CBasePlayer *pPlayer = (CBasePlayer *)UTIL_PlayerByIndex( 1 );
+	if( !pPlayer || !pPlayer->IsAlive() )
+		return;
+	pPlayer->m_iStamina = n;
+	pPlayer->SGTC_UpdateStamina();
+	test_out( "SGTCTEST {\"cmd\":\"setstamina\",\"n\":%d}", n );
+}
+
+// Test-only: set the active weapon's primary ammo to n. The Tac laser fires
+// only with ammo, and the harness gives weapons with none.
+static void cmd_setammo( int n )
+{
+	CBasePlayer *pPlayer = (CBasePlayer *)UTIL_PlayerByIndex( 1 );
+	if( !pPlayer || !pPlayer->m_pActiveItem )
+		return;
+	CBasePlayerWeapon *pWeapon = (CBasePlayerWeapon *)pPlayer->m_pActiveItem;
+	pPlayer->m_rgAmmo[pWeapon->m_iPrimaryAmmoType] = n;
+	test_out( "SGTCTEST {\"cmd\":\"setammo\",\"n\":%d,\"ammoidx\":%d}", n, pWeapon->m_iPrimaryAmmoType );
 }
 
 static void cmd_hazardenable( const char *pszStateId )
