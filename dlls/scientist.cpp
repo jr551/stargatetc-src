@@ -837,15 +837,23 @@ void CScientist::SetActivity( Activity newActivity )
 
 	iSequence = LookupActivity( newActivity );
 
-	// The textured Scientist.mdl has no scared walk or run. A scared scientist walks or
-	// runs instead of falling back to the idle pose and standing still.
-	if( iSequence == ACTIVITY_NOT_AVAILABLE )
+	// The textured Scientist.mdl has no scared walk or run. A scared scientist walks or runs on
+	// its walk or run sequence, but keeps the requested activity as the current one. Remapping the
+	// activity here made the ideal activity differ from the current one every frame, so each frame
+	// reset the animation clock and the scientist never stepped.
+	if( iSequence == ACTIVITY_NOT_AVAILABLE && ( newActivity == ACT_RUN_SCARED || newActivity == ACT_WALK_SCARED ) )
 	{
-		if( newActivity == ACT_RUN_SCARED )
-			newActivity = ACT_RUN;
-		else if( newActivity == ACT_WALK_SCARED )
-			newActivity = ACT_WALK;
-		iSequence = LookupActivity( newActivity );
+		Activity fallback = ( newActivity == ACT_RUN_SCARED ) ? ACT_RUN : ACT_WALK;
+		int iFallbackSequence = LookupActivity( fallback );
+		if( iFallbackSequence != ACTIVITY_NOT_AVAILABLE )
+		{
+			m_Activity = newActivity;
+			m_IdealActivity = newActivity;
+			pev->sequence = iFallbackSequence;
+			ResetSequenceInfo();
+			SetYawSpeed();
+			return;
+		}
 	}
 
 	// Set to the desired anim, or default anim if the desired is not present
