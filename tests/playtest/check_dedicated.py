@@ -7,6 +7,7 @@ Usage:
     check_dedicated.py grenades <log>               grenadethrowall (scenarios/grenadeall.cfg)
     check_dedicated.py botkill  <log>               botkill (scenarios/botkill.cfg)
     check_dedicated.py stamina  <log>               GUI log of gui_scenarios.py stamina: regen must run
+    check_dedicated.py sp       <log> [<expected replaced>]   run_sp.sh log: activates, no missing jaffa.mdl
 
 Each check prints one PASS/FAIL line per rule and exits 1 when any rule fails. Colour codes in
 the engine log are stripped first.
@@ -83,11 +84,23 @@ def check_stamina(rep, path, text):
         rep.rule(seen[-1] >= 90, "stamina: regenerates while standing still (%s)" % seen)
 
 
+def check_sp(rep, path, text, expected=None):
+    rep.rule('SGTC_SP_ENEMIES {"cmd":"activate"' in text, "sp: single-player enemy replacement activated")
+    rep.rule("jaffa.mdl" not in text, "sp: no missing jaffa.mdl")
+    if expected is not None:
+        replaced = text.count('SGTC_SP_ENEMIES {"cmd":"replace"')
+        rep.rule(replaced == expected, "sp: %d Jaffa replacements (want %d)" % (replaced, expected))
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
     mode, paths = sys.argv[1], sys.argv[2:]
     rep = Report()
+    if mode == "sp":
+        check_clean(rep, paths[0], read(paths[0]))
+        check_sp(rep, paths[0], read(paths[0]), int(paths[1]) if len(paths) > 1 else None)
+        return 1 if rep.failed else 0
     for path in paths:
         text = read(path)
         if mode == "clean":
