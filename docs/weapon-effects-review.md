@@ -217,4 +217,4 @@ Five of the six single-player shims map onto MP classes (`dlls/sp_shims.cpp`), s
 - `25f8500` Draw a muzzle flash for the PSG1
 - `ace710a` Add a click to the zatarc zoom steps
 - `beb352e` Play stand-in sounds for the missing flashbang and coujaf night strike samples
-- `(next)` Remove the coujaf night strike stand-in: the branch cannot run
+- `cf668f0` Remove the coujaf night strike stand-in: the branch cannot run
