@@ -38,6 +38,7 @@ void CPsg1::Precache( void )
 	// The packaged PSG1 reload sample is an empty stub. Use Half-Life's
 	// shotgun cock sound for the bolt-cycle cue instead.
 	PRECACHE_SOUND( "weapons/scock1.wav" );
+	PRECACHE_SOUND( "weapons/357_cock1.wav" );	// zoom click
 	PRECACHE_SOUND( "weapons/psg1_fire.wav" );
 
 	m_usFire = PRECACHE_EVENT( 1, "events/psg1.sc" );
@@ -81,6 +82,9 @@ void CPsg1::SecondaryAttack( void )	// ref @0x14aa0c
 		m_pPlayer->pev->fov = 40.0f;
 		m_iSgtcZoomStage = 1;
 	}
+
+	// Each zoom step made no sound.
+	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/357_cock1.wav", 0.8f, ATTN_NORM );
 
 	m_pPlayer->m_flNextAttack = UTIL_WeaponTimeBase() + 0.1f;
 	m_flNextPrimaryAttack = UTIL_WeaponTimeBase() + 0.2f;

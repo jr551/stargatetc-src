@@ -86,6 +86,9 @@ void CM16::SecondaryAttack( void )	// ref @0x107020
 		m_iSgtcZoomActive = 1;
 	}
 
+	// The scope toggle made no sound. The reference precaches this click for the M16.
+	EMIT_SOUND( ENT( m_pPlayer->pev ), CHAN_ITEM, "weapons/357_cock1.wav", 0.8f, ATTN_NORM );
+
 	m_pPlayer->m_flNextAttack = UTIL_WeaponTimeBase() + 0.5f;
 	m_flNextSecondaryAttack = UTIL_WeaponTimeBase() + 0.5f;
 }
