@@ -7,6 +7,7 @@ Usage:
     check_dedicated.py grenades <log>               grenadethrowall (scenarios/grenadeall.cfg)
     check_dedicated.py botkill  <log>               botkill (scenarios/botkill.cfg)
     check_dedicated.py stamina  <log>               GUI log of gui_scenarios.py stamina: regen must run
+    check_dedicated.py flash    <log>               flashtest (scenarios/flash.cfg): no info_flash removed at spawn
     check_dedicated.py sp       <log> [<expected replaced>]   run_sp.sh log: activates, no missing jaffa.mdl
 
 Each check prints one PASS/FAIL line per rule and exits 1 when any rule fails. Colour codes in
@@ -92,6 +93,13 @@ def check_sp(rep, path, text, expected=None):
         rep.rule(replaced == expected, "sp: %d Jaffa replacements (want %d)" % (replaced, expected))
 
 
+def check_flash(rep, path, text):
+    rows = [e for e in events(text, "SGTCTEST") if e.get("cmd") == "flashtest" and "removed" in e]
+    rep.rule(bool(rows), "flash: flashtest ran")
+    if rows:
+        rep.rule(rows[-1]["removed"] == 0, "flash: no info_flash removed at spawn (removed %d of 3)" % rows[-1]["removed"])
+
+
 def main():
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
@@ -108,7 +116,7 @@ def main():
             continue
         check_clean(rep, path, text)
         {"wepfire": check_wepfire, "grenades": check_grenades, "botkill": check_botkill,
-         "stamina": check_stamina}[mode](rep, path, text)
+         "stamina": check_stamina, "flash": check_flash}[mode](rep, path, text)
     return 1 if rep.failed else 0
 
 

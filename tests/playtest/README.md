@@ -45,6 +45,7 @@ Make a hard-linked private copy per run (real copies of everything the engine wr
 | `grenadeall` | `sg_nox` | `grenadethrowall`: the six grenade classes pin on press and throw on release. |
 | `botkill` | `sg_nox` | `botkill`: a lethal bullet from one bot to the next at 40 s and 90 s, respawn in between. |
 | `mapsweep` | any of the 44 maps | four bots, 30 s, `info` at 12 s and 24 s; a load and clean-shutdown check per map (`check_dedicated.py clean`). |
+| `flash` | `sg_nox` | `flashtest`: an `info_flash` spawned 300, 500 and 700 units above a bot must survive its own Spawn (it used to be removed when no floor was within 256 units, so that flashbang never flashed). |
 | `long` | `sg_pyramide` | 275 s soak with Zat duels and a C4 drop and detonation. |
 
 `ALERT( at_console )` output does not reach the dedicated log. The harness lines come from

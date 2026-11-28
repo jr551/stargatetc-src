@@ -394,6 +394,7 @@ static void cmd_hazardat( float x, float y, float z );
 static void cmd_hurtplayer( int n );
 static void cmd_setammo( int n );
 static void cmd_setstamina( int n );
+static void cmd_flashtest( void );
 static void cmd_colormap9( int n );
 static CBaseEntity *SGTC_TestFindEntity( const char * );
 static void cmd_useentdest( const char *pszTarget );
@@ -602,6 +603,8 @@ static int SGTC_TestRunToken( const char *pszToken )
 		cmd_setammo( atoi( pszToken + 5 ) );
 	else if( !strncmp( pszToken, "stamina_", 8 ) )
 		cmd_setstamina( atoi( pszToken + 8 ) );
+	else if( !strcmp( pszToken, "flashtest" ) )
+		cmd_flashtest();
 	else if( !strncmp( pszToken, "colormap9_", 10 ) )
 		cmd_colormap9( atoi( pszToken + 10 ) );
 	else
@@ -751,6 +754,40 @@ static void cmd_setstamina( int n )
 	pPlayer->m_iStamina = n;
 	pPlayer->SGTC_UpdateStamina();
 	test_out( "SGTCTEST {\"cmd\":\"setstamina\",\"n\":%d}", n );
+}
+
+// SGTCTEST flashtest
+//
+// Spawns an info_flash at three heights above the first player (CItem::Spawn drops an item to the
+// floor and used to remove it when no floor lay within 256 units) and reports which ones survived
+// their own Spawn. A flash that is removed at spawn never blinds anybody. Heights that start
+// inside solid report killme 0 either way, so the 300 to 700 spread is there to find open air.
+static void cmd_flashtest( void )
+{
+	CBasePlayer *p = SGTC_TestPlayerAt( 1 );
+	if( !p )
+	{
+		test_out( "SGTCTEST {\"cmd\":\"flashtest\",\"error\":\"no player\"}" );
+		return;
+	}
+
+	static const float s_flHeights[3] = { 300.0f, 500.0f, 700.0f };
+	int iRemoved = 0;
+	char szOut[160] = "";
+	for( int i = 0; i < 3; ++i )
+	{
+		Vector vecSpot = p->pev->origin;
+		vecSpot.z += s_flHeights[i];
+		CBaseEntity *pFlash = CBaseEntity::Create( "info_flash", vecSpot, g_vecZero, NULL );
+		const int iKill = ( pFlash && FBitSet( pFlash->pev->flags, FL_KILLME ) ) ? 1 : 0;
+		iRemoved += iKill;
+		char szOne[48];
+		snprintf( szOne, sizeof( szOne ), "%s{\"z\":%.0f,\"killme\":%d}", i ? "," : "", s_flHeights[i], iKill );
+		strncat( szOut, szOne, sizeof( szOut ) - strlen( szOut ) - 1 );
+		// A flash that survived removes itself after 0.1 s (CFlash::Think), long enough to touch
+		// the player, so a GUI run sees the white fade. Do not remove it here.
+	}
+	test_out( "SGTCTEST {\"cmd\":\"flashtest\",\"removed\":%d,\"flashes\":[%s]}", iRemoved, szOut );
 }
 
 // Test-only: set the active weapon's primary ammo to n. The Tac laser fires
