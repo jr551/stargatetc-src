@@ -37,6 +37,7 @@
 #include "player.h"
 #include "weapons.h"
 #include "sgtc_misc.h"
+#include "sgtc_enums.h"
 #include <math.h>
 
 // ---------------------------------------------------------------------------
@@ -143,6 +144,9 @@ void CSgtcJaffa::Spawn( void )
 	pev->solid = SOLID_SLIDEBOX;
 	pev->movetype = MOVETYPE_STEP;
 	pev->flags |= FL_MONSTER;
+	// The single-player player is team 0. CBasePlayer::Zat() skips any inflictor
+	// on the victim's team, so a team-0 Jaffa never hurt the player with its zat.
+	pev->team = SGTC_ENTTEAM_GOAULD;
 	pev->takedamage = DAMAGE_AIM;
 	pev->health = bBig ? JAFFA_HP_BIG : JAFFA_HP_NORMAL;
 	pev->max_health = pev->health;
