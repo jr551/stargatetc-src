@@ -9,6 +9,7 @@ Usage:
     check_dedicated.py stamina  <log>               GUI log of gui_scenarios.py stamina: regen must run
     check_dedicated.py flash    <log>               flashtest (scenarios/flash.cfg): no info_flash removed at spawn
     check_dedicated.py flashair <log>               GUI log of gui_scenarios.py flash: the flash survives its spawn
+    check_dedicated.py mapchange <log>              scenarios/mapchange.cfg: time limit, intermission, level change, no crash
     check_dedicated.py quiet    <log> [<log> ...]   dedicated logs: no unknown-command, late-precache or missing-cvar warnings
     check_dedicated.py sp       <log> [<expected replaced>]   run_sp.sh log: activates, no missing jaffa.mdl
 
@@ -113,6 +114,14 @@ def check_flashair(rep, path, text):
         rep.rule(rows[-1].get("killme") == 0, "flashair: the flash survived its spawn (killme %s)" % rows[-1].get("killme"))
 
 
+def check_mapchange(rep, path, text):
+    maps = re.findall(r'Loading map "([^"]+)"', text)
+    rep.rule(len(maps) >= 2, "mapchange: the server loaded a second map after the time limit (%s)" % maps)
+    rep.rule(len(maps) < 2 or maps[0] != maps[1], "mapchange: the second map differs from the first")
+    rep.rule(not CRASH.search(text), "mapchange: no crash markers across the change")
+    rep.rule(text.count("Kick:") >= 1 and text.count('"event":"spawn"') >= 1, "mapchange: bots were reset and played on")
+
+
 def check_quiet(rep, path, text):
     for needle, what in (("Unknown command", "unknown-command warnings"), ("late precache", "late precache warnings"),
                          ("fell out of level", "items that fell out of the level"),
@@ -138,10 +147,11 @@ def main():
         if mode == "clean":
             check_clean(rep, path, text)
             continue
-        check_clean(rep, path, text)
+        if mode != "mapchange":
+            check_clean(rep, path, text)
         {"wepfire": check_wepfire, "grenades": check_grenades, "botkill": check_botkill,
          "stamina": check_stamina, "flash": check_flash,
-         "flashair": check_flashair}[mode](rep, path, text)
+         "flashair": check_flashair, "mapchange": check_mapchange}[mode](rep, path, text)
     return 1 if rep.failed else 0
 
 

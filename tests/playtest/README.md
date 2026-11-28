@@ -46,9 +46,13 @@ Make a hard-linked private copy per run (real copies of everything the engine wr
 | `botkill` | `sg_nox` | `botkill`: a lethal bullet from one bot to the next at 40 s and 90 s, respawn in between. |
 | `mapsweep` | any of the 44 maps | four bots, 30 s, `info` at 12 s and 24 s; a load and clean-shutdown check per map (`check_dedicated.py clean`). |
 | `flash` | `sg_nox` | `flashtest`: an `info_flash` spawned 300, 500 and 700 units above a bot must survive its own Spawn (it used to be removed when no floor was within 256 units, so that flashbang never flashed). |
+| `mapchange` | `sg2dm_radio` | `srv mp_timelimit 1` at 12 s: intermission at 60 s, then the stock 120 s intermission cap, then the level change at about 180 s (the server kicks and re-adds the bots). Needs a 260 s timeout, so the log ends by the kill. `check_dedicated.py mapchange`. |
+| `roundreset` | `sg_nox` | eight `srv mp_resetround 1` pulses 12 s apart: the round restart path under bots; entities stay flat. |
 | `long` | `sg_pyramide` | 275 s soak with Zat duels and a C4 drop and detonation. |
 
 `check_dedicated.py quiet <log>` fails a dedicated log that has unknown-command, late-precache or fell-out-of-level warnings.
+
+A cvar set in a scenario cfg is overwritten by `server.cfg` and `game.cfg`, which run after it (`mp_timelimit` ends as 10); change game cvars from a timed script with `srv <command>`.
 
 `ALERT( at_console )` output does not reach the dedicated log. The harness lines come from
 `test_out` in `dlls/sgtc_testcmd.cpp`, which writes to stdout.
